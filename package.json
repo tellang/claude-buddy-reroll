@@ -1,0 +1,20 @@
+{
+  "name": "claude-buddy-reroll",
+  "version": "1.0.0",
+  "description": "Reroll your Claude Code buddy companion — gacha simulator + SALT patcher",
+  "type": "module",
+  "bin": {
+    "buddy-reroll": "./src/cli.mjs"
+  },
+  "scripts": {
+    "start": "node src/cli.mjs",
+    "gacha": "node src/cli.mjs gacha",
+    "check": "node src/cli.mjs check",
+    "dex": "node src/cli.mjs dex"
+  },
+  "keywords": ["claude-code", "buddy", "companion", "gacha", "reroll", "plugin"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}

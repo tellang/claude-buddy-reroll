@@ -1,0 +1,5 @@
+node_modules/
+*.buddy-backup
+.env
+.DS_Store
+.omc/
