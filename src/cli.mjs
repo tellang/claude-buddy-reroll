@@ -21,7 +21,32 @@ const MAGENTA = '\x1b[35m';
 
 const HOME = process.env.USERPROFILE || process.env.HOME || '';
 const STATE_PATH = resolve(HOME, '.claude', 'buddy-reroll-state.json');
-const DAILY_LIMIT = 3;
+const BASE_LIMIT = 3;
+const STAR_BONUS = 1; // starred users get 1 extra roll (4 total = 40 pulls)
+
+// ─── Star check ─────────────────────────────────────
+
+let _starCache = null;
+
+async function isStarred() {
+  if (_starCache !== null) return _starCache;
+  try {
+    const { execSync } = await import('child_process');
+    const out = execSync('gh api user --jq .login', { encoding: 'utf-8', timeout: 5000, stdio: ['pipe','pipe','pipe'] }).trim();
+    if (!out) { _starCache = false; return false; }
+    const stars = execSync('gh api repos/tellang/claude-buddy-reroll/stargazers --jq ".[].login"', { encoding: 'utf-8', timeout: 5000, stdio: ['pipe','pipe','pipe'] });
+    _starCache = stars.includes(out);
+    return _starCache;
+  } catch {
+    _starCache = false;
+    return false;
+  }
+}
+
+async function getDailyLimit() {
+  const starred = await isStarred();
+  return starred ? BASE_LIMIT + STAR_BONUS : BASE_LIMIT;
+}
 
 // ─── State (daily gacha limit) ──────────────────────
 
@@ -54,14 +79,18 @@ function recordRoll(state) {
   saveState(state);
 }
 
-function checkLimit(state) {
+async function checkLimit(state) {
+  const limit = await getDailyLimit();
   const used = getRollsToday(state);
-  if (used >= DAILY_LIMIT) {
-    console.log(`\n${YELLOW}  ⚠ 오늘 가챠 ${DAILY_LIMIT}회 소진! 내일 다시 도전하세요.${RESET}`);
-    console.log(`${DIM}  (${used}/${DAILY_LIMIT} used today)${RESET}\n`);
+  const starred = await isStarred();
+  if (used >= limit) {
+    console.log(`\n${YELLOW}  ⚠ 오늘 가챠 ${limit}회 소진! 내일 다시 도전하세요.${RESET}`);
+    if (!starred) console.log(`${DIM}  💡 GitHub Star 찍으면 +1회 보너스! (30뽑 → 40뽑)${RESET}`);
+    console.log(`${DIM}  (${used}/${limit} used today)${RESET}\n`);
     return false;
   }
-  console.log(`${DIM}  가챠 잔여: ${DAILY_LIMIT - used}/${DAILY_LIMIT}${RESET}`);
+  const tag = starred ? ' ⭐' : '';
+  console.log(`${DIM}  가챠 잔여: ${limit - used}/${limit}${tag}${RESET}`);
   return true;
 }
 
@@ -126,8 +155,11 @@ async function cmdCheck() {
   }
 
   const state = loadState();
+  const limit = await getDailyLimit();
   const used = getRollsToday(state);
-  console.log(`${DIM}오늘 가챠: ${used}/${DAILY_LIMIT}${RESET}\n`);
+  const starred = await isStarred();
+  const tag = starred ? ' ⭐' : '';
+  console.log(`${DIM}오늘 가챠: ${used}/${limit}${tag}${RESET}\n`);
 }
 
 async function cmdGacha(count = 10) {
@@ -306,7 +338,9 @@ async function cmdDex() {
   console.log(`${BOLD}  Hats:${RESET} ${HATS.filter(h => h !== 'none').join(', ')}`);
   console.log(`${BOLD}  Stats:${RESET} ${STATS.join(', ')}`);
   console.log(`  ${DIM}Shiny chance: 1%${RESET}`);
-  console.log(`  ${DIM}Daily gacha limit: ${DAILY_LIMIT}${RESET}\n`);
+  const limit = await getDailyLimit();
+  const starred = await isStarred();
+  console.log(`  ${DIM}Daily gacha limit: ${limit}${starred ? ' (⭐ star bonus!)' : ' (+1 with GitHub star)'}${RESET}\n`);
 }
 
 function showHelp() {
