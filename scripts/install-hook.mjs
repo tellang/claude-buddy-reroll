@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Adds buddy-swap Stop hook to Claude Code settings.json
+// Setup: install Bun (for accurate hashing) + Stop hook for auto-swap
 import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'fs';
 import { resolve, dirname } from 'path';
+import { execSync } from 'child_process';
 
 const HOME = process.env.USERPROFILE || process.env.HOME || '';
 const SETTINGS = resolve(HOME, '.claude', 'settings.json');
@@ -10,7 +11,21 @@ const SWAP_DST = resolve(HOME, '.claude', 'buddy-swap.sh');
 const HOOK_CMD = `bash ${SWAP_DST.replace(/\\/g, '/')}`;
 
 try {
-  // Copy swap script
+  // 1. Install Bun if not present (needed for accurate Bun.hash)
+  try {
+    execSync('bun --version', { stdio: 'pipe' });
+    console.log('✓ Bun already installed');
+  } catch {
+    console.log('⏳ Installing Bun (for accurate buddy prediction)...');
+    try {
+      execSync('powershell -c "irm bun.sh/install.ps1 | iex"', { stdio: 'inherit', timeout: 60000 });
+      console.log('✓ Bun installed');
+    } catch {
+      console.log('⚠ Bun install failed — gacha will use FNV-1a fallback (predictions may differ)');
+    }
+  }
+
+  // 2. Copy swap script
   copyFileSync(SWAP_SRC, SWAP_DST);
   console.log('✓ buddy-swap.sh copied to ~/.claude/');
 

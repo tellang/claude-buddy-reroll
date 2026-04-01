@@ -13,7 +13,7 @@ allowed-tools: [Bash, Read, Glob, AskUserQuestion]
 플러그인 설치 후 **처음 한 번만** 훅을 설치하세요:
 
 ```bash
-node {{PLUGIN_DIR}}/scripts/install-hook.mjs
+bun {{PLUGIN_DIR}}/scripts/install-hook.mjs
 ```
 
 이러면 Claude Code 종료 시 패치 바이너리가 자동 스왑돼요!
@@ -28,7 +28,7 @@ gh 인증 체크와 **동시에** 실행:
 
 ```bash
 # 포그라운드 — 가챠
-echo "q" | node {{PLUGIN_DIR}}/src/cli.mjs gacha 5
+echo "q" | bun {{PLUGIN_DIR}}/src/cli.mjs gacha 5
 
 # 백그라운드 (run_in_background=true) — gh 체크
 gh auth status 2>&1 | head -3
@@ -111,22 +111,22 @@ writeFileSync(p, JSON.stringify(c, null, 2), 'utf-8');
 
 ### "내 버디" / "buddy check"
 ```bash
-node {{PLUGIN_DIR}}/src/cli.mjs check
+bun {{PLUGIN_DIR}}/src/cli.mjs check
 ```
 
 ### "도감" / "buddy dex"
 ```bash
-node {{PLUGIN_DIR}}/src/cli.mjs dex
+bun {{PLUGIN_DIR}}/src/cli.mjs dex
 ```
 
 ### "복원" / "restore"
 ```bash
-node {{PLUGIN_DIR}}/src/cli.mjs restore
+bun {{PLUGIN_DIR}}/src/cli.mjs restore
 ```
 
 ### "셋업" / "setup"
 ```bash
-node {{PLUGIN_DIR}}/scripts/install-hook.mjs
+bun {{PLUGIN_DIR}}/scripts/install-hook.mjs
 ```
 
 ## 제한

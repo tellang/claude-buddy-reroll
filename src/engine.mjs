@@ -25,8 +25,9 @@ const RARITY_COLORS = { common: 'inactive', uncommon: 'success', rare: 'permissi
 
 const STAT_FLOORS = { common: 5, uncommon: 15, rare: 25, epic: 35, legendary: 50 };
 
-// FNV-1a hash — exact match to Claude Code's Xk_()
+// Hash — matches Claude Code's Xk_(): Bun.hash (wyhash) primary, FNV-1a fallback
 function fnv1a(str) {
+  if (typeof Bun !== 'undefined') return Number(BigInt(Bun.hash(str)) & 0xffffffffn);
   let hash = 2166136261;
   for (let i = 0; i < str.length; i++) {
     hash ^= str.charCodeAt(i);
