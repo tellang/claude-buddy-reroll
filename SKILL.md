@@ -1,6 +1,6 @@
 ---
 name: buddy-reroll
-description: Reroll your Claude Code /buddy companion. Gacha simulator + SALT patcher. Preview, reroll, and pick your favorite buddy.
+description: Reroll your Claude Code /buddy companion. Gacha simulator + SALT patcher. Preview, reroll, and pick your favorite buddy. Supports both native binary and npm installs. Daily 3-roll limit with star request on rarity upgrade. Use when user says "buddy reroll", "버디 리롤", "가챠", "buddy gacha", "buddy check", "buddy dex", "내 버디", "버디 뽑기", "reroll", "리롤".
 ---
 
 # buddy-reroll — Claude Code Buddy Reroller
@@ -9,46 +9,51 @@ Reroll your Claude Code buddy companion with a gacha-style simulator.
 
 ## Commands
 
-When the user says "buddy reroll", "버디 리롤", "가챠", "buddy gacha", "buddy check", "buddy dex", "내 버디", "버디 뽑기", execute the appropriate command below.
+Run all commands from the skill's base directory via Bash.
 
 ### check — Show current buddy
 
-Run: `node ~/.claude/skills/buddy-reroll/src/cli.mjs check`
+```bash
+node {SKILL_DIR}/src/cli.mjs check
+```
 
-Shows the user's current buddy based on their accountUuid and the active SALT.
+### gacha [N] — Roll N random buddies (daily limit: 3)
 
-### gacha [N] — Roll N random buddies
+```bash
+node {SKILL_DIR}/src/cli.mjs gacha [N]
+```
 
-Run: `node ~/.claude/skills/buddy-reroll/src/cli.mjs gacha [N]`
-
-Rolls N (default 10) random buddies with different SALTs. Shows a mini-card list and highlights the best pull.
+Rolls N buddies (default 10). Highlights best pull. If rarity upgrades from previous best, prompts a Speaki-style GitHub star request.
 
 ### reroll — Interactive reroll with SALT patch
 
-Run: `node ~/.claude/skills/buddy-reroll/src/cli.mjs reroll`
+```bash
+node {SKILL_DIR}/src/cli.mjs reroll
+```
 
-Interactive mode: shows current buddy, rolls 10 candidates, lets user pick one, then patches the SALT in Claude Code's cli.js. Requires npm-installed Claude Code (not native binary).
+Shows current buddy, rolls candidates, picks one, patches SALT + clears soul. Handles native binary (binary-safe patch + swap instructions) and npm (direct text patch) automatically.
 
-### dex — Show all species and rarities
+### dex — Pokédex
 
-Run: `node ~/.claude/skills/buddy-reroll/src/cli.mjs dex`
-
-Shows all 18 species, 5 rarity tiers, eyes, hats, and stats.
+```bash
+node {SKILL_DIR}/src/cli.mjs dex
+```
 
 ### restore — Restore original buddy
 
-Run: `node ~/.claude/skills/buddy-reroll/src/cli.mjs restore`
-
-Restores the original SALT from backup, giving you back your original buddy.
+```bash
+node {SKILL_DIR}/src/cli.mjs restore
+```
 
 ## How it works
 
-Your buddy is determined by: `hash(accountId + SALT)`
+- Buddy = `hash(accountId + SALT)` via FNV-1a + Mulberry32 (exact replica of v2.1.89)
+- Changing the SALT → completely different buddy (species, rarity, stats, hat, eyes)
+- Clearing `.claude.json` companion → new name + personality on restart
+- Native binary: binary-safe Buffer patch, requires Claude exit for swap
+- npm install: direct text replacement in cli.js
 
-By changing the SALT in Claude Code's cli.js, you get a completely different buddy.
-The algorithm (FNV-1a + Mulberry32) is an exact replica of Claude Code v2.1.89's implementation.
+## Limits
 
-## Requirements
-
-- Node.js >= 18
-- Claude Code installed via npm (for reroll/patch features)
+- 3 gacha rolls per day (resets at midnight, stored in `~/.claude/buddy-reroll-state.json`)
+- On rarity upgrade, a Speaki-style star request appears. Consider invoking `/star-prompt` skill if user agrees.

@@ -1,17 +1,12 @@
 #!/usr/bin/env node
 
 // Claude Buddy Reroll — Gacha simulator + SALT patcher
-// Usage:
-//   buddy-reroll check          — Show your current buddy
-//   buddy-reroll gacha [N]      — Roll N random buddies (default: 10)
-//   buddy-reroll reroll          — Interactive reroll with SALT patch
-//   buddy-reroll dex             — Show all species/rarities
-//   buddy-reroll restore         — Restore original SALT
+// Supports both native binary and npm installs
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { roll, multiRoll, randomSalt, ORIGINAL_SALT, SPECIES, EYES, HATS, STATS, RARITIES, RARITY_WEIGHTS, RARITY_STARS } from './engine.mjs';
-import { findCliJs, readCurrentSalt, patchSalt, restoreOriginal } from './patcher.mjs';
+import { detectInstall, readCurrentSalt, patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
 import { createInterface } from 'readline';
 
@@ -22,17 +17,87 @@ const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const RED = '\x1b[31m';
 const CYAN = '\x1b[36m';
+const MAGENTA = '\x1b[35m';
+
+const HOME = process.env.USERPROFILE || process.env.HOME || '';
+const STATE_PATH = resolve(HOME, '.claude', 'buddy-reroll-state.json');
+const DAILY_LIMIT = 3;
+
+// ─── State (daily gacha limit) ──────────────────────
+
+function loadState() {
+  try {
+    if (existsSync(STATE_PATH)) return JSON.parse(readFileSync(STATE_PATH, 'utf-8'));
+  } catch {}
+  return { rolls: [], bestRarity: 'common' };
+}
+
+function saveState(state) {
+  writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function getRollsToday(state) {
+  const today = todayKey();
+  return (state.rolls || []).filter(r => r.date === today).length;
+}
+
+function recordRoll(state) {
+  if (!state.rolls) state.rolls = [];
+  state.rolls.push({ date: todayKey(), ts: Date.now() });
+  // Keep only last 30 days
+  const cutoff = Date.now() - 30 * 86400000;
+  state.rolls = state.rolls.filter(r => r.ts > cutoff);
+  saveState(state);
+}
+
+function checkLimit(state) {
+  const used = getRollsToday(state);
+  if (used >= DAILY_LIMIT) {
+    console.log(`\n${YELLOW}  ⚠ 오늘 가챠 ${DAILY_LIMIT}회 소진! 내일 다시 도전하세요.${RESET}`);
+    console.log(`${DIM}  (${used}/${DAILY_LIMIT} used today)${RESET}\n`);
+    return false;
+  }
+  console.log(`${DIM}  가챠 잔여: ${DAILY_LIMIT - used}/${DAILY_LIMIT}${RESET}`);
+  return true;
+}
+
+// ─── Rarity helpers ─────────────────────────────────
+
+const RARITY_ORDER = { common: 0, uncommon: 1, rare: 2, epic: 3, legendary: 4 };
+
+function isUpgrade(oldRarity, newRarity) {
+  return RARITY_ORDER[newRarity] > RARITY_ORDER[oldRarity];
+}
+
+// ─── Star request (Speaki style) ────────────────────
+
+function speakiStarRequest(species, rarity) {
+  const msgs = [
+    `흐헤헤~ ${species} ${RARITY_STARS[rarity]} 뽑았다!! 축하축하~!`,
+    `이 정도면 GitHub Star 하나쯤은... 괜찮지 않을까? 👉👈`,
+    ``,
+    `  ${CYAN}gh repo star tellang/claude-buddy-reroll${RESET}`,
+    ``,
+    `별 하나만... 제발... ${species}(이)가 기뻐할 거예요...! ⭐`,
+  ];
+  console.log();
+  for (const m of msgs) console.log(`${MAGENTA}  ${m}${RESET}`);
+  console.log();
+}
+
+// ─── User utils ─────────────────────────────────────
 
 function getUserId() {
-  const home = process.env.USERPROFILE || process.env.HOME || '';
-  const configPath = resolve(home, '.claude.json');
+  const configPath = resolve(HOME, '.claude.json');
   if (!existsSync(configPath)) return 'anon';
   try {
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     return config.oauthAccount?.accountUuid ?? config.userID ?? 'anon';
-  } catch {
-    return 'anon';
-  }
+  } catch { return 'anon'; }
 }
 
 function ask(question) {
@@ -40,34 +105,40 @@ function ask(question) {
   return new Promise(r => rl.question(question, a => { rl.close(); r(a.trim()); }));
 }
 
-// ─── Commands ────────────────────────────────
+// ─── Commands ───────────────────────────────────────
 
 async function cmdCheck() {
   const userId = getUserId();
+  const install = detectInstall();
+
   console.log(`\n${DIM}Account: ${userId === 'anon' ? 'anonymous' : userId.slice(0, 8) + '...'}${RESET}`);
 
-  // Check current SALT
-  const cliJs = findCliJs();
-  let currentSalt = ORIGINAL_SALT;
-  if (cliJs) {
-    const detected = readCurrentSalt(cliJs);
-    if (detected) currentSalt = detected;
-    console.log(`${DIM}SALT: ${currentSalt}${currentSalt !== ORIGINAL_SALT ? ' (patched!)' : ' (original)'}${RESET}`);
+  if (install) {
+    console.log(`${DIM}Install: ${install.type} (${install.path})${RESET}`);
+    const salt = readCurrentSalt(install);
+    const patched = salt && salt !== ORIGINAL_SALT;
+    console.log(`${DIM}SALT: ${salt}${patched ? ' (patched!)' : ' (original)'}${RESET}`);
+    const result = roll(userId, salt || ORIGINAL_SALT);
+    console.log(renderCard(result));
   } else {
-    console.log(`${DIM}cli.js not found — using original SALT for preview${RESET}`);
+    console.log(`${DIM}Claude Code not found — using original SALT${RESET}`);
+    console.log(renderCard(roll(userId, ORIGINAL_SALT)));
   }
 
-  const result = roll(userId, currentSalt);
-  console.log(renderCard(result));
+  const state = loadState();
+  const used = getRollsToday(state);
+  console.log(`${DIM}오늘 가챠: ${used}/${DAILY_LIMIT}${RESET}\n`);
 }
 
 async function cmdGacha(count = 10) {
+  const state = loadState();
+  if (!checkLimit(state)) return;
+
   const userId = getUserId();
   console.log(`\n${BOLD}  🎰 BUDDY GACHA — Rolling ${count}x...${RESET}\n`);
 
   const results = multiRoll(userId, count);
 
-  // Show mini cards
   for (let i = 0; i < results.length; i++) {
     console.log(renderMiniCard(results[i], i));
   }
@@ -75,23 +146,31 @@ async function cmdGacha(count = 10) {
   // Stats summary
   const rarityCount = {};
   for (const r of results) {
-    const rarity = r.bones.rarity;
-    rarityCount[rarity] = (rarityCount[rarity] || 0) + 1;
+    rarityCount[r.bones.rarity] = (rarityCount[r.bones.rarity] || 0) + 1;
   }
   console.log(`\n${DIM}  Results: ${Object.entries(rarityCount).map(([k, v]) => `${k}:${v}`).join(' ')}${RESET}`);
 
-  // Highlight best
-  const best = results.reduce((a, b) => {
-    const order = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
-    return order.indexOf(a.bones.rarity) >= order.indexOf(b.bones.rarity) ? a : b;
-  });
+  // Best pull
+  const best = results.reduce((a, b) =>
+    RARITY_ORDER[a.bones.rarity] >= RARITY_ORDER[b.bones.rarity] ? a : b
+  );
   const bestIdx = results.indexOf(best);
 
   console.log(`\n${BOLD}  Best pull: #${bestIdx + 1}${RESET}`);
   console.log(renderCard(best, { showSalt: true, index: bestIdx }));
 
-  // Ask to view details
-  const answer = await ask(`\n  View details? Enter number (1-${count}) or 'q' to quit: `);
+  // Record roll
+  recordRoll(state);
+
+  // Check upgrade → star request
+  if (isUpgrade(state.bestRarity || 'common', best.bones.rarity)) {
+    state.bestRarity = best.bones.rarity;
+    saveState(state);
+    speakiStarRequest(best.bones.species, best.bones.rarity);
+  }
+
+  // View details
+  const answer = await ask(`  View details? (1-${count}) or 'q': `);
   if (answer && answer !== 'q') {
     const idx = parseInt(answer) - 1;
     if (idx >= 0 && idx < results.length) {
@@ -101,20 +180,22 @@ async function cmdGacha(count = 10) {
 }
 
 async function cmdReroll() {
-  const cliJs = findCliJs();
-  if (!cliJs) {
-    console.log(`\n${RED}  ✗ Claude Code cli.js not found${RESET}`);
-    console.log(`${DIM}  Install via npm: npm i -g @anthropic-ai/claude-code@latest${RESET}`);
-    console.log(`${DIM}  Or use 'gacha' command to preview without patching${RESET}\n`);
+  const state = loadState();
+  if (!checkLimit(state)) return;
+
+  const install = detectInstall();
+  if (!install) {
+    console.log(`\n${RED}  ✗ Claude Code not found${RESET}`);
+    console.log(`${DIM}  native: ~/.local/bin/claude(.exe)${RESET}`);
+    console.log(`${DIM}  npm:    npm i -g @anthropic-ai/claude-code${RESET}\n`);
     return;
   }
 
   const userId = getUserId();
-  const currentSalt = readCurrentSalt(cliJs) || ORIGINAL_SALT;
+  const currentSalt = readCurrentSalt(install) || ORIGINAL_SALT;
 
   console.log(`\n${BOLD}  🔄 BUDDY REROLL${RESET}`);
-  console.log(`${DIM}  Current SALT: ${currentSalt}${RESET}`);
-  console.log(`${DIM}  cli.js: ${cliJs}${RESET}\n`);
+  console.log(`${DIM}  Install: ${install.type} | SALT: ${currentSalt}${RESET}\n`);
 
   console.log(`${BOLD}  Current buddy:${RESET}`);
   console.log(renderCard(roll(userId, currentSalt)));
@@ -128,21 +209,17 @@ async function cmdReroll() {
     console.log(renderMiniCard(candidates[i], i));
   }
 
-  // Select
-  const choice = await ask(`\n  Pick one to apply (1-${count}), 'more' for 10 more, or 'q' to cancel: `);
+  const choice = await ask(`\n  Pick (1-${count}), 'more', or 'q': `);
 
-  if (choice === 'more') {
-    return cmdReroll(); // Recursive reroll
-  }
-
+  if (choice === 'more') return cmdReroll();
   if (choice === 'q' || !choice) {
-    console.log(`\n${DIM}  Cancelled.${RESET}\n`);
+    console.log(`${DIM}  Cancelled.${RESET}\n`);
     return;
   }
 
   const idx = parseInt(choice) - 1;
   if (idx < 0 || idx >= candidates.length) {
-    console.log(`${RED}  Invalid selection${RESET}`);
+    console.log(`${RED}  Invalid${RESET}`);
     return;
   }
 
@@ -150,36 +227,64 @@ async function cmdReroll() {
   console.log(`\n${BOLD}  Selected:${RESET}`);
   console.log(renderCard(selected, { showSalt: true, index: idx }));
 
-  const confirm = await ask(`  ${YELLOW}Apply this buddy? This will patch cli.js [y/N]: ${RESET}`);
+  const confirm = await ask(`  ${YELLOW}Apply? [y/N]: ${RESET}`);
   if (confirm.toLowerCase() !== 'y') {
-    console.log(`\n${DIM}  Cancelled.${RESET}\n`);
+    console.log(`${DIM}  Cancelled.${RESET}\n`);
     return;
   }
 
-  // Patch!
-  const result = patchSalt(cliJs, currentSalt, selected.salt);
-  if (result.success) {
-    console.log(`\n${GREEN}  ✓ Patched! Your new buddy is ready.${RESET}`);
-    console.log(`${DIM}  Backup saved to: ${result.backupPath}${RESET}`);
-    console.log(`${DIM}  Restart Claude Code to see your new buddy.${RESET}\n`);
-  } else {
+  // Patch SALT
+  const result = patchSalt(install, currentSalt, selected.salt);
+  if (!result.success) {
     console.log(`\n${RED}  ✗ Patch failed: ${result.error}${RESET}\n`);
+    return;
+  }
+
+  // Clear soul (name/personality) so it regenerates
+  const soulResult = clearSoul();
+
+  // Record
+  recordRoll(state);
+
+  // Report based on install type
+  if (result.type === 'npm') {
+    console.log(`\n${GREEN}  ✓ Patched! (npm cli.js)${RESET}`);
+    if (soulResult.oldName) console.log(`${DIM}  Soul cleared: ${soulResult.oldName} → (regenerates)${RESET}`);
+    console.log(`${DIM}  Restart Claude Code to meet your new buddy.${RESET}\n`);
+  } else {
+    // Native binary — might need manual swap
+    if (result.needsSwap) {
+      console.log(`\n${GREEN}  ✓ Patched binary created!${RESET}`);
+      if (soulResult.oldName) console.log(`${DIM}  Soul cleared: ${soulResult.oldName} → (regenerates)${RESET}`);
+      console.log(`\n${YELLOW}  Native binary is locked (Claude running).${RESET}`);
+      console.log(`  Close Claude Code, then run:\n`);
+      console.log(`  ${CYAN}${result.swapCommand}${RESET}\n`);
+    } else {
+      console.log(`\n${GREEN}  ✓ Patched! (native binary)${RESET}`);
+      if (soulResult.oldName) console.log(`${DIM}  Soul cleared: ${soulResult.oldName} → (regenerates)${RESET}`);
+      console.log(`${DIM}  Restart Claude Code to meet your new buddy.${RESET}\n`);
+    }
+  }
+
+  // Check upgrade → star request
+  const oldRarity = state.bestRarity || 'common';
+  if (isUpgrade(oldRarity, selected.bones.rarity)) {
+    state.bestRarity = selected.bones.rarity;
+    saveState(state);
+    speakiStarRequest(selected.bones.species, selected.bones.rarity);
   }
 }
 
 async function cmdRestore() {
-  const cliJs = findCliJs();
-  if (!cliJs) {
-    console.log(`\n${RED}  ✗ Claude Code cli.js not found${RESET}\n`);
-    return;
-  }
-
-  const result = restoreOriginal(cliJs);
+  const result = restoreOriginal();
   if (result.success) {
-    console.log(`\n${GREEN}  ✓ Original buddy restored.${RESET}`);
-    console.log(`${DIM}  Restart Claude Code to see your original buddy.${RESET}\n`);
+    clearSoul();
+    console.log(`\n${GREEN}  ✓ Original buddy restored. (${result.type})${RESET}`);
+    console.log(`${DIM}  Restart Claude Code.${RESET}\n`);
   } else {
-    console.log(`\n${RED}  ✗ ${result.error}${RESET}\n`);
+    console.log(`\n${RED}  ✗ ${result.error}${RESET}`);
+    if (result.command) console.log(`  ${CYAN}${result.command}${RESET}`);
+    console.log();
   }
 }
 
@@ -200,7 +305,8 @@ async function cmdDex() {
   console.log(`\n${BOLD}  Eyes:${RESET} ${EYES.join('  ')}`);
   console.log(`${BOLD}  Hats:${RESET} ${HATS.filter(h => h !== 'none').join(', ')}`);
   console.log(`${BOLD}  Stats:${RESET} ${STATS.join(', ')}`);
-  console.log(`  ${DIM}Shiny chance: 1%${RESET}\n`);
+  console.log(`  ${DIM}Shiny chance: 1%${RESET}`);
+  console.log(`  ${DIM}Daily gacha limit: ${DAILY_LIMIT}${RESET}\n`);
 }
 
 function showHelp() {
@@ -212,18 +318,20 @@ ${BOLD}Usage:${RESET}
   buddy-reroll gacha [count]     Roll random buddies (default: 10)
   buddy-reroll reroll            Interactive reroll with SALT patch
   buddy-reroll restore           Restore original buddy
-  buddy-reroll dex               Show all species and rarities
+  buddy-reroll dex               All species and rarities
 
-${BOLD}How it works:${RESET}
-  Your buddy is determined by: hash(accountId + SALT)
-  By changing the SALT in Claude Code's cli.js, you get a different buddy.
-  The 'reroll' command lets you preview candidates and pick your favorite.
+${BOLD}Limits:${RESET}
+  Daily gacha: ${DAILY_LIMIT}x/day (resets at midnight)
 
-${DIM}Backup is created before any patch. Use 'restore' to undo.${RESET}
+${BOLD}Install support:${RESET}
+  native binary  ~/.local/bin/claude(.exe) — binary patch
+  npm install    node_modules cli.js — text patch
+
+${DIM}Backup created before any patch. 'restore' to undo.${RESET}
 `);
 }
 
-// ─── Main ────────────────────────────────
+// ─── Main ───────────────────────────────────────────
 
 const [,, cmd, ...args] = process.argv;
 
