@@ -8,6 +8,8 @@ import { resolve } from 'path';
 import { roll, multiRoll, randomSalt, ORIGINAL_SALT, SPECIES, EYES, HATS, STATS, RARITIES, RARITY_WEIGHTS, RARITY_STARS } from './engine.mjs';
 import { detectInstall, readCurrentSalt, patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
+import { addBatchToCollection, renderCollection } from './collection.mjs';
+import { playHatchAnimation, playQuickReveal } from './animation.mjs';
 import { createInterface } from 'readline';
 
 const BOLD = '\x1b[1m';
@@ -189,10 +191,12 @@ async function cmdGacha(count = 10) {
   const bestIdx = results.indexOf(best);
 
   console.log(`\n${BOLD}  Best pull: #${bestIdx + 1}${RESET}`);
+  await playHatchAnimation(best.bones);
   console.log(renderCard(best, { showSalt: true, index: bestIdx }));
 
-  // Record roll
+  // Record roll + save to collection
   recordRoll(state);
+  addBatchToCollection(results);
 
   // Check upgrade → star request
   if (isUpgrade(state.bestRarity || 'common', best.bones.rarity)) {
@@ -321,20 +325,11 @@ async function cmdRestore() {
 }
 
 async function cmdDex() {
-  console.log(`\n${BOLD}  📖 BUDDY DEX${RESET}`);
-  console.log(`  ${'─'.repeat(34)}\n`);
+  // Show collection view
+  console.log(renderCollection());
 
-  console.log(`${BOLD}  Species (${SPECIES.length})${RESET}`);
-  for (let i = 0; i < SPECIES.length; i++) {
-    console.log(`    ${String(i + 1).padStart(2)}. ${SPECIES[i]}`);
-  }
-
-  console.log(`\n${BOLD}  Rarities${RESET}`);
-  for (const r of RARITIES) {
-    console.log(`    ${RARITY_STARS[r].padEnd(6)} ${r.padEnd(10)} (${RARITY_WEIGHTS[r]}%)`);
-  }
-
-  console.log(`\n${BOLD}  Eyes:${RESET} ${EYES.join('  ')}`);
+  // Also show game info
+  console.log(`${BOLD}  Eyes:${RESET} ${EYES.join('  ')}`);
   console.log(`${BOLD}  Hats:${RESET} ${HATS.filter(h => h !== 'none').join(', ')}`);
   console.log(`${BOLD}  Stats:${RESET} ${STATS.join(', ')}`);
   console.log(`  ${DIM}Shiny chance: 1%${RESET}`);
