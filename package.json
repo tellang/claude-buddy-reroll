@@ -1,19 +1,34 @@
 {
   "name": "claude-buddy-reroll",
-  "version": "1.0.0",
-  "description": "Reroll your Claude Code buddy companion — gacha simulator + SALT patcher",
+  "version": "1.3.0",
+  "description": "Reroll your Claude Code buddy companion — gacha simulator + SALT patcher. 18 species, 5 rarities, daily limit, collection dex, egg hatching animation.",
   "type": "module",
   "bin": {
     "buddy-reroll": "./src/cli.mjs"
   },
   "scripts": {
-    "start": "node src/cli.mjs",
-    "gacha": "node src/cli.mjs gacha",
-    "check": "node src/cli.mjs check",
-    "dex": "node src/cli.mjs dex"
+    "start": "bun src/cli.mjs",
+    "gacha": "bun src/cli.mjs gacha",
+    "check": "bun src/cli.mjs check",
+    "dex": "bun src/cli.mjs dex",
+    "setup": "bun scripts/install-hook.mjs"
   },
-  "keywords": ["claude-code", "buddy", "companion", "gacha", "reroll", "plugin"],
+  "keywords": ["claude-code", "buddy", "companion", "gacha", "reroll", "plugin", "bun", "ascii-art"],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tellang/claude-buddy-reroll"
+  },
+  "homepage": "https://github.com/tellang/claude-buddy-reroll",
+  "author": "tellang",
+  "files": [
+    "src/",
+    "scripts/",
+    "skills/",
+    ".claude-plugin/",
+    "README.md",
+    "SKILL.md"
+  ],
   "engines": {
     "node": ">=18"
   }
