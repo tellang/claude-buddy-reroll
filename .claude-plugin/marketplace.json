@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "buddy-reroll",
+  "description": "Reroll your Claude Code /buddy companion — gacha simulator + SALT patcher",
+  "owner": {
+    "name": "tellang"
+  },
+  "plugins": [
+    {
+      "name": "buddy-reroll",
+      "description": "Reroll your Claude Code /buddy companion. Gacha simulator with daily 3-roll limit, SALT patcher for native binary and npm installs. 18 species, 5 rarities, ASCII sprites, Speaki-style star request on rarity upgrade.",
+      "version": "1.0.0",
+      "author": {
+        "name": "tellang"
+      },
+      "source": "./",
+      "category": "fun",
+      "homepage": "https://github.com/tellang/claude-buddy-reroll",
+      "tags": ["buddy", "companion", "gacha", "reroll", "pet", "ascii-art"]
+    }
+  ],
+  "version": "1.0.0"
+}
