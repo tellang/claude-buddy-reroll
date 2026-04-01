@@ -337,7 +337,7 @@ const [,, cmd, ...args] = process.argv;
 
 switch (cmd) {
   case 'check':   await cmdCheck(); break;
-  case 'gacha':   await cmdGacha(parseInt(args[0]) || 10); break;
+  case 'gacha':   await cmdGacha(Math.min(Math.max(1, parseInt(args[0]) || 10), 100)); break;
   case 'reroll':  await cmdReroll(); break;
   case 'restore': await cmdRestore(); break;
   case 'dex':     await cmdDex(); break;

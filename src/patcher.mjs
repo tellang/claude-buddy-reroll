@@ -77,6 +77,11 @@ export function patchSalt(install, currentSalt, newSalt) {
     return { success: false, error: 'Install or current SALT not found' };
   }
 
+  // Validate salt characters
+  if (!/^[a-z0-9-]+$/.test(newSalt)) {
+    return { success: false, error: 'Invalid salt characters (a-z, 0-9, - only)' };
+  }
+
   // Enforce same length
   if (newSalt.length !== currentSalt.length) {
     newSalt = newSalt.padEnd(currentSalt.length, '0').slice(0, currentSalt.length);
