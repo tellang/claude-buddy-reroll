@@ -1,5 +1,5 @@
 // SALT patcher for Claude Code — supports both native binary and npm installs
-import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, copyFileSync, renameSync } from 'fs';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
 import { ORIGINAL_SALT } from './engine.mjs';
@@ -130,22 +130,37 @@ function patchNative(filePath, currentSalt, newSalt, backupPath) {
     return { success: false, error: 'SALT not found in binary' };
   }
 
-  // native binary may be locked if running — write to swap path that buddy-swap.sh expects
-  const dir = resolve(filePath, '..');
-  const ext = process.platform === 'win32' ? '.exe' : '';
-  const patchedPath = resolve(dir, `claude-patched${ext}`);
-  writeFileSync(patchedPath, buf);
-  return {
-    success: true,
-    backupPath,
-    type: 'native',
-    patchedPath,
-    count,
-    needsSwap: true,
-    swapCommand: process.platform === 'win32'
-      ? `mv "${filePath}" "${filePath}.old" && mv "${patchedPath}" "${filePath}"`
-      : `mv "${patchedPath}" "${filePath}"`,
-  };
+  // Try immediate swap — works if binary isn't locked
+  try {
+    if (process.platform === 'win32') {
+      // Windows: rename running exe out of the way, write new one
+      const oldPath = filePath + '.old';
+      renameSync(filePath, oldPath);
+      writeFileSync(filePath, buf);
+      return { success: true, backupPath, type: 'native', count, needsSwap: false };
+    } else {
+      // Unix: direct overwrite works (running process keeps old inode)
+      writeFileSync(filePath, buf);
+      return { success: true, backupPath, type: 'native', count, needsSwap: false };
+    }
+  } catch {
+    // File locked (Claude running / multiple instances) — stage for Stop hook
+    const dir = resolve(filePath, '..');
+    const ext = process.platform === 'win32' ? '.exe' : '';
+    const patchedPath = resolve(dir, `claude-patched${ext}`);
+    writeFileSync(patchedPath, buf);
+    return {
+      success: true,
+      backupPath,
+      type: 'native',
+      patchedPath,
+      count,
+      needsSwap: true,
+      swapCommand: process.platform === 'win32'
+        ? `move "${filePath}" "${filePath}.old" & copy "${patchedPath}" "${filePath}"`
+        : `mv "${patchedPath}" "${filePath}"`,
+    };
+  }
 }
 
 // ─── Soul (name/personality) ────────────────────────
