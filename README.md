@@ -25,6 +25,8 @@ npm i -g claude-buddy-reroll
 bdy setup
 ```
 
+`bdy update`도 업데이트 후 같은 셋업을 자동으로 다시 확인해요.
+
 ---
 
 ## CLI 사용법

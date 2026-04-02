@@ -13,6 +13,7 @@ if (process.platform === 'win32') {
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { execFileSync } from 'child_process';
 import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIES, RARITIES, RARITY_WEIGHTS, applyTenPullGuarantee, generateGuaranteedEpicRoll, isEpicOrBetter } from './engine.mjs';
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { resolveClaudeContext, updatePatchedSalt } from './context.mjs';
@@ -899,6 +900,7 @@ function cmdSchema(subCmd) {
           previous: { type: 'string' },
           current: { type: 'string' },
           updated: { type: 'boolean' },
+          setup: { type: 'boolean' },
         },
       },
     },
@@ -957,8 +959,9 @@ async function cmdUpdate() {
       log('Checking for updates...');
       const current = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8')).version;
       execSync('npm install -g claude-buddy-reroll@latest', { stdio: 'pipe' });
+      runRuntimeSetup({ stdio: 'pipe' });
       const updated = execSync('npm info claude-buddy-reroll version', { encoding: 'utf-8' }).trim();
-      output({ command: 'update', previous: current, current: updated, updated: current !== updated });
+      output({ command: 'update', previous: current, current: updated, updated: current !== updated, setup: true });
     } catch (e) {
       errorJson('UPDATE_FAILED', e.message);
     }
@@ -971,6 +974,8 @@ async function cmdUpdate() {
     console.log(`${DIM}  현재 버전: v${pkg.version}${RESET}`);
     console.log(`${DIM}  업데이트 중...${RESET}\n`);
     execSync('npm install -g claude-buddy-reroll@latest', { stdio: 'inherit' });
+    console.log(`\n${DIM}  런타임 셋업 확인 중...${RESET}`);
+    runRuntimeSetup({ stdio: 'inherit' });
     const newVer = execSync('npm info claude-buddy-reroll version', { encoding: 'utf-8' }).trim();
     if (newVer !== pkg.version) {
       console.log(`\n${GREEN}  ✓ v${pkg.version} → v${newVer} 업데이트 완료! 쪼아요~!${RESET}\n`);
@@ -983,13 +988,15 @@ async function cmdUpdate() {
   }
 }
 
-async function cmdSetup() {
-  const { execFileSync } = await import('child_process');
+function runRuntimeSetup({ stdio = 'inherit' } = {}) {
   const installHookPath = fileURLToPath(new URL('../scripts/install-hook.mjs', import.meta.url));
+  return execFileSync(process.execPath, [installHookPath], { stdio });
+}
 
+async function cmdSetup() {
   if (flags.json) {
     try {
-      execFileSync(process.execPath, [installHookPath], { stdio: 'pipe' });
+      runRuntimeSetup({ stdio: 'pipe' });
       output({ command: 'setup', success: true });
     } catch (error) {
       errorJson('SETUP_FAILED', error?.message || String(error));
@@ -999,7 +1006,7 @@ async function cmdSetup() {
 
   console.log(`\n${MAGENTA}${BOLD}  쪼아요~! 런타임 셋업 확인할게요.${RESET}\n`);
   try {
-    execFileSync(process.execPath, [installHookPath], { stdio: 'inherit' });
+    runRuntimeSetup({ stdio: 'inherit' });
     console.log(`\n${GREEN}  ✓ setup complete${RESET}\n`);
   } catch (error) {
     console.log(`\n${RED}  ✗ setup failed: ${error?.message || String(error)}${RESET}\n`);
@@ -1017,6 +1024,7 @@ function showHelp() {
   console.log();
   console.log(`${BOLD}Setup${RESET}`);
   console.log(`  ${GREEN}bdy setup${RESET}    install Bun/runtime hook support if missing`);
+  console.log(`  ${GREEN}bdy update${RESET}   update package and rerun runtime setup`);
   console.log();
   console.log(`${DIM}Daily quota: ${BASE_LIMIT} (+1 with GitHub star) | Event bonus: ${APOLOGY_EVENT.pullsPerRun}-pull x${APOLOGY_EVENT.bonusRuns}${RESET}\n`);
 }

@@ -18,4 +18,5 @@ test('README removes plugin marketplace emphasis and documents npm-first flow', 
   assert.match(readme, /npm i -g claude-buddy-reroll/i);
   assert.match(readme, /npm-only 제품 표면/i);
   assert.match(readme, /bdy setup/i);
+  assert.match(readme, /bdy update/i);
 });
