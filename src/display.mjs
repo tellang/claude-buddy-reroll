@@ -23,11 +23,12 @@ const ASCII_BORDER = {
 const RESET = '\x1b[0m';
 const DIM = '\x1b[2m';
 const BOLD = '\x1b[1m';
+const GRAY = '\x1b[90m';
 
-function statBar(value, max = 100) {
+function statBar(value, max = 100, color = '') {
   const width = 20;
   const filled = Math.round((value / max) * width);
-  return '█'.repeat(filled) + '░'.repeat(width - filled) + ` ${value}`;
+  return `${color}${'█'.repeat(filled)}${GRAY}${'░'.repeat(width - filled)}${RESET} ${value}`;
 }
 
 export function renderCard(result, { showSalt = false, index = null, frame = 0 } = {}) {
@@ -60,7 +61,7 @@ export function renderCard(result, { showSalt = false, index = null, frame = 0 }
     const isHigh = val >= STAT_FLOORS[rarity] + 40;
     const isLow = val <= STAT_FLOORS[rarity];
     const marker = isHigh ? ' ▲' : isLow ? ' ▼' : '';
-    lines.push(toTerminalSafeText(`    ${stat.padEnd(10)} ${statBar(val)}${marker}`));
+    lines.push(toTerminalSafeText(`    ${stat.padEnd(10)} ${statBar(val, 100, style.label)}${marker}`));
   }
 
   lines.push('');
@@ -76,10 +77,12 @@ export function renderMiniCard(result, index) {
   const { rarity, species, eye, shiny } = bones;
   const style = RARITY_STYLE[rarity];
   const stars = formatStars(RARITY_STARS[rarity]);
-  const shinyTag = shiny ? formatShinyTag('✨') : '  ';
+  const shinyTag = shiny
+    ? (isAsciiOnlyTerminal() ? '[SHINY]' : formatShinyTag('✨'))
+    : '';
 
   const idx = String(index + 1).padStart(2, ' ');
-  return `${style.color}${idx}. ${formatEye(eye)} ${species.padEnd(10)} ${stars.padEnd(5)} ${shinyTag}${RESET}`;
+  return `${style.color}${idx}. ${formatEye(eye)} ${species.padEnd(10)} ${stars.padEnd(5)} ${shinyTag.padEnd(8)}${RESET}`;
 }
 
 // Dex rendering is handled directly in cli.mjs

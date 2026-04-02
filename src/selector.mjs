@@ -35,16 +35,23 @@ export async function select({ title, items, columns = 2, selected = 0, preview 
   let tick = 0;
   const rows = Math.ceil(items.length / columns);
   const colWidth = 22;
+  let renderedBodyRows = rows;
+  let didFullscreenInit = false;
 
   function render() {
     const previewText = typeof preview === 'function' ? preview(items[cursor], { cursor, tick }) : '';
     const previewLines = previewText ? String(previewText).split('\n') : [];
-    const bodyRows = Math.max(rows, previewHeight || previewLines.length);
+    const bodyRows = Math.max(rows, previewHeight, previewLines.length);
+    const totalLines = getSelectorRenderLineCount(Math.max(renderedBodyRows, bodyRows));
 
     if (fullscreen) {
-      process.stdout.write(CLEAR);
+      if (!didFullscreenInit) {
+        process.stdout.write(CLEAR);
+        for (let i = 0; i < totalLines; i++) process.stdout.write('\n');
+        didFullscreenInit = true;
+      }
+      process.stdout.write(`\x1b[${totalLines}A`);
     } else {
-      const totalLines = getSelectorRenderLineCount(bodyRows);
       process.stdout.write(`\x1b[${totalLines}A`);
     }
 
@@ -86,6 +93,7 @@ export async function select({ title, items, columns = 2, selected = 0, preview 
     const item = items[cursor];
     const desc = item.description ? `  ${DIM}${item.description}${RESET}` : '';
     process.stdout.write(`\x1b[2K\n\x1b[2K  ${CYAN}▶${RESET} ${items[cursor].label}${desc}\n`);
+    renderedBodyRows = bodyRows;
   }
 
   return new Promise((resolve) => {
@@ -96,7 +104,7 @@ export async function select({ title, items, columns = 2, selected = 0, preview 
     if (!fullscreen) {
       const initialPreviewText = typeof preview === 'function' ? preview(items[cursor], { cursor, tick }) : '';
       const initialPreviewLines = initialPreviewText ? String(initialPreviewText).split('\n') : [];
-      const totalLines = getSelectorRenderLineCount(Math.max(rows, previewHeight || initialPreviewLines.length));
+      const totalLines = getSelectorRenderLineCount(Math.max(rows, previewHeight, initialPreviewLines.length));
       for (let i = 0; i < totalLines; i++) process.stdout.write('\n');
     }
 

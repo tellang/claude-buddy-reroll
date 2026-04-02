@@ -385,19 +385,24 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
   }
 
   const stars = formatStars(RARITY_STARS[variant.bones.rarity]);
-  const sprite = toTerminalSafeText(renderSprite(
+  const rawSprite = toTerminalSafeText(renderSprite(
     species,
     formatEye(variant.bones.eye),
     variant.bones.hat,
-    tick % 2,
-  ));
+    tick,
+  )).split('\n');
+  const horizontalOffset = tick % 4 < 2 ? 0 : 1;
+  const sprite = rawSprite.map((line, index) => {
+    const bob = (tick + index) % 6 === 0 ? ' ' : '';
+    return `${' '.repeat(horizontalOffset)}${bob}${line}`;
+  });
 
   return [
     `${MAGENTA}${BOLD}  PIXEL PREVIEW${RESET}`,
     `  ${BOLD}${species.toUpperCase()}${RESET} ${stars}`,
     `  ${DIM}${variant.bones.rarity} • x${entry.count}${variant.bones.shiny ? ' • shiny' : ''}${RESET}`,
     '  +----------------------+',
-    ...sprite.split('\n').map((line) => `  | ${line.padEnd(20)} |`),
+    ...sprite.map((line) => `  | ${line.padEnd(20)} |`),
     '  +----------------------+',
     `  ${DIM}eye ${formatEye(variant.bones.eye)} • hat ${toTerminalSafeText(variant.bones.hat)}${RESET}`,
   ].join('\n');
