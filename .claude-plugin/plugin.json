@@ -1,8 +1,21 @@
 {
   "name": "buddy-reroll",
   "description": "Reroll your Claude Code /buddy companion. Gacha simulator with daily 3-roll limit, SALT patcher with cross-platform swap, /buddy-doctor diagnostics. 18 species, 5 rarities, ASCII sprites, Speaki voice.",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "author": {
     "name": "tellang"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-cli.mjs",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }
