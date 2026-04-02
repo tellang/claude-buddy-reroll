@@ -1,4 +1,5 @@
 // Egg hatching animation for buddy gacha reveal
+import { formatShinyTag, formatStars, toTerminalSafeText } from './terminal.mjs';
 
 const RESET     = '\x1b[0m';
 const BOLD      = '\x1b[1m';
@@ -139,7 +140,7 @@ function pad(line, offset) {
 }
 
 function renderFrame(frameLines, offset, color) {
-  return frameLines.map(l => color + pad(l, offset) + RESET).join('\n');
+  return frameLines.map(l => color + toTerminalSafeText(pad(l, offset)) + RESET).join('\n');
 }
 
 function clearLines(n, out) {
@@ -211,18 +212,18 @@ export async function playHatchAnimation(bones) {
 
     // ── Reveal panel ───────────────────────────────────────────────────
     const { species, eye, hat, shiny, stats } = bones;
-    const shinyTag = shiny ? ' \u2728 SHINY!' : '';
+    const shinyTag = shiny ? formatShinyTag(' \u2728 SHINY!') : '';
     const rarityStars = { common: '★', uncommon: '★★', rare: '★★★', epic: '★★★★', legendary: '★★★★★' };
-    const stars = rarityStars[rarity] || '';
+    const stars = formatStars(rarityStars[rarity] || '');
 
     // Epic/Legendary get extra sparkle lines before reveal
     if (rarity === 'epic' || rarity === 'legendary') {
-      out.write(`${color}  ·  ✧  ·  ✧  ·  ✧  ·${RESET}\n`);
+      out.write(`${color}${toTerminalSafeText('  ·  ✧  ·  ✧  ·  ✧  ·')}${RESET}\n`);
     }
 
     if (rarity === 'legendary') {
       // Slow typewriter reveal for legendary
-      const title = `  ✦ ${species.toUpperCase()} ${stars} ✦${shinyTag}`;
+      const title = toTerminalSafeText(`  ✦ ${species.toUpperCase()} ${stars} ✦${shinyTag}`);
       out.write(color);
       for (const ch of title) {
         out.write(ch);
@@ -230,12 +231,12 @@ export async function playHatchAnimation(bones) {
       }
       out.write(RESET + '\n');
     } else {
-      out.write(`${color}  ✦ ${species.toUpperCase()} ${stars} ✦${shinyTag}${RESET}\n`);
+      out.write(`${color}${toTerminalSafeText(`  ✦ ${species.toUpperCase()} ${stars} ✦${shinyTag}`)}${RESET}\n`);
     }
 
     // Epic/Legendary get extra sparkle lines after reveal
     if (rarity === 'epic' || rarity === 'legendary') {
-      out.write(`${color}  ·  ✧  ·  ✧  ·  ✧  ·${RESET}\n`);
+      out.write(`${color}${toTerminalSafeText('  ·  ✧  ·  ✧  ·  ✧  ·')}${RESET}\n`);
     }
 
     // Brief pause so the reveal is visible before caller prints the card
@@ -251,8 +252,8 @@ export async function playQuickReveal(bones) {
   // No animation — used for --no-animation flag or non-TTY output
   const { rarity, species, shiny } = bones;
   const color = RARITY_COLOR[rarity] || RESET;
-  const shinyTag = shiny ? ' \u2728 SHINY!' : '';
+  const shinyTag = shiny ? formatShinyTag(' \u2728 SHINY!') : '';
   const rarityStars = { common: '★', uncommon: '★★', rare: '★★★', epic: '★★★★', legendary: '★★★★★' };
-  const stars = rarityStars[rarity] || '';
-  process.stdout.write(`${color}  ${species.toUpperCase()}  ${stars}${shinyTag}${RESET}\n`);
+  const stars = formatStars(rarityStars[rarity] || '');
+  process.stdout.write(`${color}${toTerminalSafeText(`  ${species.toUpperCase()}  ${stars}${shinyTag}`)}${RESET}\n`);
 }

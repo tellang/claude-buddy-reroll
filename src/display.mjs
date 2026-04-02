@@ -1,6 +1,8 @@
 // Display utilities for buddy cards
 
 import { RARITY_STARS, STAT_FLOORS } from './engine.mjs';
+import { renderSprite } from './sprites.mjs';
+import { formatEye, formatShinyTag, formatStars, isAsciiOnlyTerminal, toTerminalSafeText } from './terminal.mjs';
 
 const RARITY_STYLE = {
   common:    { border: '─', color: '\x1b[37m',  label: '\x1b[37m'  },  // white
@@ -8,6 +10,14 @@ const RARITY_STYLE = {
   rare:      { border: '━', color: '\x1b[36m',  label: '\x1b[36m'  },  // cyan
   epic:      { border: '▓', color: '\x1b[35m',  label: '\x1b[35m'  },  // magenta
   legendary: { border: '█', color: '\x1b[33m',  label: '\x1b[33;1m' }, // bold yellow
+};
+
+const ASCII_BORDER = {
+  common: '-',
+  uncommon: '=',
+  rare: '=',
+  epic: '#',
+  legendary: '#',
 };
 
 const RESET = '\x1b[0m';
@@ -24,19 +34,23 @@ export function renderCard(result, { showSalt = false, index = null } = {}) {
   const { bones, inspirationSeed } = result;
   const { rarity, species, eye, hat, shiny, stats } = bones;
   const style = RARITY_STYLE[rarity];
-  const stars = RARITY_STARS[rarity];
-  const shinyTag = shiny ? ' ✨ SHINY!' : '';
+  const borderChar = isAsciiOnlyTerminal() ? ASCII_BORDER[rarity] : style.border;
+  const stars = formatStars(RARITY_STARS[rarity]);
+  const shinyTag = shiny ? formatShinyTag(' ✨ SHINY!') : '';
+  const sprite = toTerminalSafeText(renderSprite(species, formatEye(eye), hat));
 
   const header = index !== null ? `#${index + 1} ` : '';
   const saltLine = showSalt && result.salt ? `${DIM}salt: ${result.salt}${RESET}` : '';
 
   const lines = [
     '',
-    `${style.color}${style.border.repeat(36)}${RESET}`,
+    `${style.color}${borderChar.repeat(36)}${RESET}`,
     `${style.color}  ${header}${BOLD}${species.toUpperCase()}${RESET}${style.color}  ${stars}${shinyTag}${RESET}`,
-    `${style.color}${style.border.repeat(36)}${RESET}`,
+    `${style.color}${borderChar.repeat(36)}${RESET}`,
     '',
-    `  ${DIM}Eye:${RESET} ${eye}    ${DIM}Hat:${RESET} ${hat === 'none' ? '(none)' : hat}`,
+    ...sprite.split('\n').map((line) => `  ${line}`),
+    '',
+    `  ${DIM}Eye:${RESET} ${formatEye(eye)}    ${DIM}Hat:${RESET} ${toTerminalSafeText(hat === 'none' ? '(none)' : hat)}`,
     '',
     `  ${DIM}Stats:${RESET}`,
   ];
@@ -46,12 +60,12 @@ export function renderCard(result, { showSalt = false, index = null } = {}) {
     const isHigh = val >= STAT_FLOORS[rarity] + 40;
     const isLow = val <= STAT_FLOORS[rarity];
     const marker = isHigh ? ' ▲' : isLow ? ' ▼' : '';
-    lines.push(`    ${stat.padEnd(10)} ${statBar(val)}${marker}`);
+    lines.push(toTerminalSafeText(`    ${stat.padEnd(10)} ${statBar(val)}${marker}`));
   }
 
   lines.push('');
   if (saltLine) lines.push(`  ${saltLine}`);
-  lines.push(`${style.color}${style.border.repeat(36)}${RESET}`);
+  lines.push(`${style.color}${borderChar.repeat(36)}${RESET}`);
   lines.push('');
 
   return lines.join('\n');
@@ -61,11 +75,11 @@ export function renderMiniCard(result, index) {
   const { bones } = result;
   const { rarity, species, eye, shiny } = bones;
   const style = RARITY_STYLE[rarity];
-  const stars = RARITY_STARS[rarity];
-  const shinyTag = shiny ? '✨' : '  ';
+  const stars = formatStars(RARITY_STARS[rarity]);
+  const shinyTag = shiny ? formatShinyTag('✨') : '  ';
 
   const idx = String(index + 1).padStart(2, ' ');
-  return `${style.color}${idx}. ${eye} ${species.padEnd(10)} ${stars.padEnd(5)} ${shinyTag}${RESET}`;
+  return `${style.color}${idx}. ${formatEye(eye)} ${species.padEnd(10)} ${stars.padEnd(5)} ${shinyTag}${RESET}`;
 }
 
 // Dex rendering is handled directly in cli.mjs

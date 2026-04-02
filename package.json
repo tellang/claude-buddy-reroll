@@ -1,6 +1,6 @@
 {
   "name": "claude-buddy-reroll",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "Speaki-styled npm terminal for buddy rerolls, dex replay, and SALT patching.",
   "type": "module",
   "bin": {

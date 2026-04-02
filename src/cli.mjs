@@ -12,7 +12,7 @@ if (process.platform === 'win32') {
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIES, RARITIES, RARITY_WEIGHTS } from './engine.mjs';
+import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIES, RARITIES, RARITY_WEIGHTS, applyTenPullGuarantee, generateGuaranteedEpicRoll, isEpicOrBetter } from './engine.mjs';
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { resolveClaudeContext, updatePatchedSalt } from './context.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
@@ -22,6 +22,7 @@ import { playHatchAnimation } from './animation.mjs';
 import { createInterface } from 'readline';
 import { findDexBuddy } from './dex.mjs';
 import { renderHomeScreen, renderCheckScreen, renderQuotaSummary, renderSearchStatus } from './ui.mjs';
+import { shouldGuaranteeEventRun } from './event-state.mjs';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -193,10 +194,24 @@ function getApologyEventRemaining(state) {
   return Math.max(0, APOLOGY_EVENT.bonusRuns - getApologyEventUses(state));
 }
 
-function recordRoll(state, mode = 'daily') {
+function maybeApplyEventGuarantee(state, allowance, userId, results) {
+  if (!shouldGuaranteeEventRun({
+    state,
+    eventId: APOLOGY_EVENT.id,
+    mode: allowance.mode,
+    eventRemaining: allowance.eventRemaining,
+    results,
+    isEpicResult: isEpicOrBetter,
+  })) {
+    return results;
+  }
+  return applyTenPullGuarantee(results, () => generateGuaranteedEpicRoll(userId));
+}
+
+function recordRoll(state, mode = 'daily', metadata = {}) {
   if (mode === 'event') {
     if (!state.eventUses) state.eventUses = [];
-    state.eventUses.push({ id: APOLOGY_EVENT.id, ts: Date.now() });
+    state.eventUses.push({ id: APOLOGY_EVENT.id, ts: Date.now(), hadEpic: metadata.hadEpic === true });
   } else {
     if (!state.rolls) state.rolls = [];
     state.rolls.push({ date: todayKey(), ts: Date.now() });
@@ -257,7 +272,7 @@ async function checkLimit(state, options = {}) {
   if (!allowed) {
     log(`\n${YELLOW}  ⚠ 오늘 가챠 ${limit}회 소진! 내일 다시 도전하세요.${RESET}`);
     if (eventRemaining === 0) {
-      log(`${DIM}  이벤트 보상 5연차 2회도 모두 사용했습니다.${RESET}`);
+      log(`${DIM}  이벤트 보상 10연차 ${APOLOGY_EVENT.bonusRuns}회도 모두 사용했습니다.${RESET}`);
     }
     if (!starred) log(`${DIM}  💡 GitHub Star 찍으면 +1회 보너스! (30뽑 → 40뽑)${RESET}`);
     log(`${DIM}  (${used}/${limit} used today)${RESET}\n`);
@@ -270,7 +285,7 @@ async function checkLimit(state, options = {}) {
   } else {
     log(`${DIM}  가챠 잔여: ${limit - used}/${limit}${tag}${RESET}`);
     if (eventRemaining > 0) {
-      log(`${DIM}  이벤트 보상: 5연차 ${eventRemaining}회 남음${RESET}`);
+      log(`${DIM}  이벤트 보상: ${APOLOGY_EVENT.pullsPerRun}연차 ${eventRemaining}회 남음${RESET}`);
     }
   }
   return allowance;
@@ -391,8 +406,9 @@ async function cmdGacha(count = 10) {
   const rollCount = allowance.mode === 'event' ? allowance.pullCount : count;
 
   if (flags.json) {
-    const results = multiRoll(userId, rollCount, { guaranteedEpic: allowance.mode === 'event' });
-    recordRoll(state, allowance.mode);
+    const rawResults = multiRoll(userId, rollCount);
+    const results = maybeApplyEventGuarantee(state, allowance, userId, rawResults);
+    recordRoll(state, allowance.mode, { hadEpic: results.some(isEpicOrBetter) });
     addBatchToCollection(results);
 
     const mapped = results.map((result, index) => mapResult(result, index));
@@ -416,18 +432,8 @@ async function cmdGacha(count = 10) {
 
   console.log(`\n${BOLD}  🎰 BUDDY GACHA — Rolling ${rollCount}x...${RESET}\n`);
 
-  const results = multiRoll(userId, rollCount, { guaranteedEpic: allowance.mode === 'event' });
-
-  for (let i = 0; i < results.length; i++) {
-    console.log(renderMiniCard(results[i], i));
-  }
-
-  // Stats summary
-  const rarityCount = {};
-  for (const r of results) {
-    rarityCount[r.bones.rarity] = (rarityCount[r.bones.rarity] || 0) + 1;
-  }
-  console.log(`\n${DIM}  Results: ${Object.entries(rarityCount).map(([k, v]) => `${k}:${v}`).join(' ')}${RESET}`);
+  const rawResults = multiRoll(userId, rollCount);
+  const results = maybeApplyEventGuarantee(state, allowance, userId, rawResults);
 
   // Best pull
   const best = results.reduce((a, b) =>
@@ -435,12 +441,22 @@ async function cmdGacha(count = 10) {
   );
   const bestIdx = results.indexOf(best);
 
-  console.log(`\n${BOLD}  Best pull: #${bestIdx + 1}${RESET}`);
   await playHatchAnimation(best.bones);
   console.log(renderCard(best, { showSalt: true, index: bestIdx }));
 
+  console.log(`${BOLD}  Pull summary${RESET}`);
+  for (let i = 0; i < results.length; i++) {
+    console.log(renderMiniCard(results[i], i));
+  }
+
+  const rarityCount = {};
+  for (const r of results) {
+    rarityCount[r.bones.rarity] = (rarityCount[r.bones.rarity] || 0) + 1;
+  }
+  console.log(`\n${DIM}  Results: ${Object.entries(rarityCount).map(([k, v]) => `${k}:${v}`).join(' ')}${RESET}`);
+
   // Record roll + save to collection
-  recordRoll(state, allowance.mode);
+  recordRoll(state, allowance.mode, { hadEpic: results.some(isEpicOrBetter) });
   addBatchToCollection(results);
 
   // Check upgrade → star request

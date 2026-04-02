@@ -123,11 +123,11 @@ function rollBones(rng) {
   };
 }
 
-function isEpicOrBetter(result) {
+export function isEpicOrBetter(result) {
   return GUARANTEED_RARITY_ORDER[result.bones.rarity] >= GUARANTEED_RARITY_ORDER.epic;
 }
 
-function rollGuaranteedEpic(userId, maxAttempts = 10000) {
+export function generateGuaranteedEpicRoll(userId, maxAttempts = 10000) {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const salt = randomSalt();
     const result = { salt, ...roll(userId, salt) };
@@ -171,8 +171,7 @@ export function randomSalt() {
 }
 
 // Multi-roll: generate N buddies with random salts
-export function multiRoll(userId, count = 10, options = {}) {
-  const { guaranteedEpic = false } = options;
+export function multiRoll(userId, count = 10) {
   const salts = [];
   for (let i = 0; i < count; i++) {
     salts.push(randomSalt());
@@ -182,8 +181,7 @@ export function multiRoll(userId, count = 10, options = {}) {
     salt,
     ...rollBones(mulberry32(hashes[index])),
   }));
-  if (!guaranteedEpic) return results;
-  return applyTenPullGuarantee(results, () => rollGuaranteedEpic(userId));
+  return results;
 }
 
 export {
