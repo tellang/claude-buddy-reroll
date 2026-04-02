@@ -1,6 +1,6 @@
 {
   "name": "claude-buddy-reroll",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "Reroll your Claude Code buddy companion — gacha simulator + SALT patcher. 18 species, 5 rarities, daily limit, collection dex, egg hatching animation.",
   "type": "module",
   "bin": {
