@@ -17,6 +17,7 @@ export function renderBanner(title = 'SPEAKI BUDDY LAB', subtitle = 'npm-only bu
     `${MAGENTA}${border}${RESET}`,
     `${MAGENTA}  ${BOLD}${title}${RESET}`,
     `${DIM}  ${subtitle}${RESET}`,
+    `${DIM}  collectible-rpg terminal companion${RESET}`,
     `${MAGENTA}${border}${RESET}`,
     '',
   ].join('\n');
@@ -26,6 +27,7 @@ export function renderPanel(title, lines = [], tone = CYAN) {
   const content = lines.map((line) => `  ${line}`);
   return [
     `${tone}${BOLD}${title}${RESET}`,
+    `${tone}${'─'.repeat(Math.max(18, title.length + 6))}${RESET}`,
     ...content,
     '',
   ].join('\n');
@@ -61,6 +63,7 @@ export function renderHomeScreen() {
       'Speaki-first terminal UX',
       'npm install is the primary path',
       'dex replays discovered buddies deterministically',
+      'forms, rarity, and flavor presented as card sections',
     ], YELLOW),
     renderPanel('Rarity Table', renderRarityOverview(), MAGENTA),
   ].join('\n');

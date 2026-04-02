@@ -38,7 +38,7 @@ bdy check              # 내 버디 확인
 bdy gacha              # 10연차 가챠!
 bdy gacha 20           # 20연차!
 bdy reroll             # 리롤 (인터랙티브 버디 교체)
-bdy dex                # fullscreen 도감 + 발견 개체 재적용
+bdy dex                # fullscreen 도감 + 상세 패널 + 발견 개체 재적용
 bdy restore            # 원래 버디로 복원
 bdy setup              # Bun / 런타임 셋업 복구
 ```
@@ -50,6 +50,7 @@ bdy setup              # Bun / 런타임 셋업 복구
 - species-only가 아니라 discovered variant를 우선 재적용하는 dex
 - species progress와 form collection을 분리한 도감
 - 10연차 one-by-one reveal + highlight-aware skip
+- 오른쪽 상세 패널에 animated preview / flavor text / rarity track / form gallery
 - JSON 모드는 유지해서 에이전트/스크립트 자동화도 가능
 
 ### Agent DX (JSON 모드)

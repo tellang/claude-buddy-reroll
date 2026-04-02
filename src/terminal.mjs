@@ -15,6 +15,7 @@ const ASCII_REPLACEMENTS = new Map([
   ['▲', '+'],
   ['▼', '-'],
   ['✧', '*'],
+  ['✨ SHINY!', '[SHINY]'],
 ]);
 
 export function isAsciiOnlyTerminal() {

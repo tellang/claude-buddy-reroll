@@ -370,20 +370,32 @@ function requireClaudeContext(options = {}) {
 }
 
 function buildTamagotchiPreview(species, entry, tick = 0) {
+  const width = 20;
+  const panel = (title, lines) => [
+    '  +----------------------+',
+    `  | ${title.padEnd(width)} |`,
+    ...lines.map((line) => `  | ${toTerminalSafeText(line).padEnd(width)} |`),
+    '  +----------------------+',
+  ];
+  const padSlot = (value) => value.padEnd(10);
+
   const variant = entry ? getPreferredVariant(entry) : null;
   if (!variant) {
     return [
       `${MAGENTA}${BOLD}  PIXEL PREVIEW${RESET}`,
       `  ${DIM}undiscovered buddy${RESET}`,
-      '',
-      '      .------.      ',
-      '     / ??  ?? \\     ',
-      '    |  ????    |    ',
-      '     \\  ????  /     ',
-      '      `------`      ',
-      '                    ',
-      '',
-      `  ${DIM}Find this species first.${RESET}`,
+      ...panel('PROFILE', ['best   --', 'latest --', 'shiny  --', 'forms  0']),
+      ...panel('PREVIEW', [
+        '     .------.      ',
+        '    / ??  ?? \\     ',
+        '   |  ????    |    ',
+        '    \\  ????  /     ',
+        '     `------`      ',
+        '',
+      ]),
+      ...panel('FLAVOR TEXT', ['Find this species', 'in gacha first,', 'then come back to', 'unlock its card.']),
+      ...panel('RARITY TRACK', ['-- common  -- uncommon', '-- rare    -- epic', '-- legendary']),
+      ...panel('FORMS', [`${padSlot('--')} ${padSlot('--')}`, `${padSlot('--')} ${padSlot('--')}`]),
     ].join('\n');
   }
 
@@ -396,9 +408,10 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
     .slice(0, 4)
     .map((item) => {
       const shinyMark = item.bones.shiny ? ' ✨' : '';
-      return `${formatStars(RARITY_STARS[item.bones.rarity])} ${formatEye(item.bones.eye)} ${toTerminalSafeText(item.bones.hat)}${shinyMark}`;
+      return `${formatStars(RARITY_STARS[item.bones.rarity])} ${formatEye(item.bones.eye)} ${toTerminalSafeText(item.bones.hat)}${shinyMark}`.slice(0, 10);
     });
   while (gallery.length < 4) gallery.push('--');
+  const rarityTrack = getRarityCompletion(entry).map(({ rarity, found }) => `${found ? formatStars(RARITY_STARS[rarity]) : '--'} ${rarity}`);
 
   const stars = formatStars(RARITY_STARS[variant.bones.rarity]);
   const loreLines = wrapLore(BUDDY_LORE[species] || '', 20, 4);
@@ -419,19 +432,16 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
     `${MAGENTA}${BOLD}  PIXEL PREVIEW${RESET}`,
     `  ${BOLD}${species.toUpperCase()}${RESET} ${stars}`,
     `  ${DIM}${variant.bones.rarity} • x${entry.count}${variant.bones.shiny ? ' • shiny' : ''}${RESET}`,
-    '  +----------------------+',
-    ...sprite.map((line) => `  | ${line.padEnd(20)} |`),
-    '  +----------------------+',
-    `  ${DIM}eye ${formatEye(variant.bones.eye)} • hat ${toTerminalSafeText(variant.bones.hat)}${RESET}`,
-    `  ${DIM}best ${formatStars(RARITY_STARS[variant.bones.rarity])} • latest ${latestVariant ? formatStars(RARITY_STARS[latestVariant.bones.rarity]) : '--'}${RESET}`,
-    `  ${DIM}shiny ${shinyVariant ? 'yes' : 'no'} • forms ${entry.variants.length}${RESET}`,
-    `  ${BOLD}Flavor Text${RESET}`,
-    '  +----------------------+',
-    ...loreLines.map((line) => `  | ${toTerminalSafeText(line).padEnd(20)} |`),
-    '  +----------------------+',
-    `  ${DIM}rarity ${rarityCompletion}${RESET}`,
-    `  ${DIM}forms:${RESET} ${gallery[0]} | ${gallery[1]}`,
-    `         ${gallery[2]} | ${gallery[3]}`,
+    ...panel('PREVIEW', sprite),
+    ...panel('PROFILE', [
+      `eye    ${formatEye(variant.bones.eye)} • ${toTerminalSafeText(variant.bones.hat)}`,
+      `best   ${formatStars(RARITY_STARS[variant.bones.rarity])}`,
+      `latest ${latestVariant ? formatStars(RARITY_STARS[latestVariant.bones.rarity]) : '--'}`,
+      `shiny  ${shinyVariant ? 'yes' : 'no'} • forms ${entry.variants.length}`,
+    ]),
+    ...panel('FLAVOR TEXT', loreLines),
+    ...panel('RARITY TRACK', [`${rarityTrack[0]}  ${rarityTrack[1]}`, `${rarityTrack[2]}  ${rarityTrack[3]}`, `${rarityTrack[4]}`]),
+    ...panel('FORMS', [`${padSlot(gallery[0])} ${padSlot(gallery[1])}`, `${padSlot(gallery[2])} ${padSlot(gallery[3])}`]),
   ].join('\n');
 }
 
@@ -968,7 +978,7 @@ async function cmdDex() {
     items: selectorItems,
     columns: 3,
     fullscreen: true,
-    previewHeight: 20,
+    previewHeight: 24,
     animationIntervalMs: 450,
     preview: (item, meta) => buildTamagotchiPreview(item.value, col[item.value], meta.tick),
   });
@@ -976,10 +986,21 @@ async function cmdDex() {
   if (!choice) return;
 
   const targetSpecies = choice.value;
-  console.log(`\n${BOLD}  Target: ${targetSpecies.toUpperCase()}${RESET}`);
+  const targetEntry = col[targetSpecies];
 
-  const confirmRoll = await ask(`  Roll until you get ${targetSpecies}? [y/N]: `);
-  if (confirmRoll.toLowerCase() !== 'y') return;
+  if (!targetEntry) {
+    console.log(`\n${YELLOW}  ${targetSpecies.toUpperCase()} is not in your dex yet.${RESET}`);
+    console.log(`${DIM}  Find it in gacha first, then come back to apply a collected form.${RESET}\n`);
+    return;
+  }
+
+  console.log(`\n${BOLD}  Target: ${targetSpecies.toUpperCase()}${RESET}`);
+  const preferredVariant = getPreferredVariant(targetEntry);
+  const actionPrompt = preferredVariant?.salt
+    ? `  Apply your collected ${targetSpecies} form? [y/N]: `
+    : `  Recover a matching ${targetSpecies} form from your dex data? [y/N]: `;
+  const confirmApplyFromDex = await ask(actionPrompt);
+  if (confirmApplyFromDex.toLowerCase() !== 'y') return;
 
   const context = requireClaudeContext({ needsInstall: true, needsSalt: true, needsPatchSupport: true });
   if (!context) return;
@@ -987,7 +1008,7 @@ async function cmdDex() {
   const search = findDexBuddy({
     userId: context.userId,
     targetSpecies,
-    entry: col[targetSpecies],
+    entry: targetEntry,
   });
 
   console.log(renderSearchStatus({ targetSpecies, criteria: search.criteria, attempts: search.attempts }));

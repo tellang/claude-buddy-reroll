@@ -5,11 +5,11 @@ import { renderSprite } from './sprites.mjs';
 import { formatEye, formatShinyTag, formatStars, isAsciiOnlyTerminal, toTerminalSafeText } from './terminal.mjs';
 
 const RARITY_STYLE = {
-  common:    { border: '─', color: '\x1b[37m',  label: '\x1b[37m'  },  // white
-  uncommon:  { border: '═', color: '\x1b[32m',  label: '\x1b[32m'  },  // green
-  rare:      { border: '━', color: '\x1b[36m',  label: '\x1b[36m'  },  // cyan
-  epic:      { border: '▓', color: '\x1b[35m',  label: '\x1b[35m'  },  // magenta
-  legendary: { border: '█', color: '\x1b[33m',  label: '\x1b[33;1m' }, // bold yellow
+  common:    { border: '─', color: '\x1b[37m',  label: '\x1b[37m',  badge: 'COMMON'    },
+  uncommon:  { border: '═', color: '\x1b[32m',  label: '\x1b[32m',  badge: 'UNCOMMON'  },
+  rare:      { border: '━', color: '\x1b[36m',  label: '\x1b[36m',  badge: 'RARE'      },
+  epic:      { border: '▓', color: '\x1b[35m',  label: '\x1b[35m',  badge: 'EPIC'      },
+  legendary: { border: '█', color: '\x1b[33m',  label: '\x1b[33;1m', badge: 'LEGENDARY' },
 };
 
 const ASCII_BORDER = {
@@ -28,7 +28,7 @@ const GRAY = '\x1b[90m';
 function statBar(value, max = 100, color = '') {
   const width = 20;
   const filled = Math.round((value / max) * width);
-  return `${color}${'█'.repeat(filled)}${GRAY}${'░'.repeat(width - filled)}${RESET} ${value}`;
+  return `${color}${'█'.repeat(filled)}${GRAY}${'░'.repeat(width - filled)}${RESET} ${String(value).padStart(3)}`;
 }
 
 export function renderCard(result, { showSalt = false, index = null, frame = 0 } = {}) {
@@ -39,6 +39,7 @@ export function renderCard(result, { showSalt = false, index = null, frame = 0 }
   const stars = formatStars(RARITY_STARS[rarity]);
   const shinyTag = shiny ? formatShinyTag(' ✨ SHINY!') : '';
   const sprite = toTerminalSafeText(renderSprite(species, formatEye(eye), hat, frame));
+  const rarityBadge = `${style.label}[ ${style.badge} ]${RESET}`;
 
   const header = index !== null ? `#${index + 1} ` : '';
   const saltLine = showSalt && result.salt ? `${DIM}salt: ${result.salt}${RESET}` : '';
@@ -46,6 +47,7 @@ export function renderCard(result, { showSalt = false, index = null, frame = 0 }
   const lines = [
     '',
     `${style.color}${borderChar.repeat(36)}${RESET}`,
+    `  ${rarityBadge}`,
     `${style.color}  ${header}${BOLD}${species.toUpperCase()}${RESET}${style.color}  ${stars}${shinyTag}${RESET}`,
     `${style.color}${borderChar.repeat(36)}${RESET}`,
     '',
