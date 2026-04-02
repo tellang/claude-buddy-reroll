@@ -401,6 +401,7 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
   while (gallery.length < 4) gallery.push('--');
 
   const stars = formatStars(RARITY_STARS[variant.bones.rarity]);
+  const loreLines = wrapLore(BUDDY_LORE[species] || '', 20, 4);
   const rawSprite = toTerminalSafeText(renderSprite(
     species,
     formatEye(variant.bones.eye),
@@ -424,8 +425,10 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
     `  ${DIM}eye ${formatEye(variant.bones.eye)} • hat ${toTerminalSafeText(variant.bones.hat)}${RESET}`,
     `  ${DIM}best ${formatStars(RARITY_STARS[variant.bones.rarity])} • latest ${latestVariant ? formatStars(RARITY_STARS[latestVariant.bones.rarity]) : '--'}${RESET}`,
     `  ${DIM}shiny ${shinyVariant ? 'yes' : 'no'} • forms ${entry.variants.length}${RESET}`,
-    `  ${BOLD}Flavor${RESET}`,
-    ...wrapLore(BUDDY_LORE[species] || '', 26, 2).map((line) => `  ${DIM}${line}${RESET}`),
+    `  ${BOLD}Flavor Text${RESET}`,
+    '  +----------------------+',
+    ...loreLines.map((line) => `  | ${toTerminalSafeText(line).padEnd(20)} |`),
+    '  +----------------------+',
     `  ${DIM}rarity ${rarityCompletion}${RESET}`,
     `  ${DIM}forms:${RESET} ${gallery[0]} | ${gallery[1]}`,
     `         ${gallery[2]} | ${gallery[3]}`,
@@ -965,7 +968,7 @@ async function cmdDex() {
     items: selectorItems,
     columns: 3,
     fullscreen: true,
-    previewHeight: 17,
+    previewHeight: 20,
     animationIntervalMs: 450,
     preview: (item, meta) => buildTamagotchiPreview(item.value, col[item.value], meta.tick),
   });
