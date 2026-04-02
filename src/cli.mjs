@@ -3,6 +3,13 @@
 // Claude Buddy Reroll — Gacha simulator + SALT patcher
 // Supports both native binary and npm installs
 
+// Enable ANSI colors on Windows cmd/pwsh
+if (process.platform === 'win32') {
+  try { const { execSync } = await import('child_process'); execSync('', { stdio: 'ignore' }); } catch {}
+  // Force UTF-8 output
+  if (process.stdout.isTTY) process.stdout.setDefaultEncoding?.('utf-8');
+}
+
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIES, RARITIES, RARITY_WEIGHTS } from './engine.mjs';
@@ -803,32 +810,28 @@ function cmdSchema(subCmd) {
 
 function showHelp() {
   console.log(`
-${BOLD}claude-buddy-reroll${RESET} — Reroll your Claude Code buddy companion
+${MAGENTA}${BOLD}  쪼아요~! 스피키의 버디 가챠예요!${RESET}
+${DIM}  claude-buddy-reroll v${process.env.npm_package_version || '1.4'}${RESET}
 
-${BOLD}Usage:${RESET}
-  buddy-reroll check             Show your current buddy
-  buddy-reroll gacha [count]     Roll random buddies (default: 10)
-  buddy-reroll reroll            Interactive reroll with SALT patch
-  buddy-reroll restore           Restore original buddy
-  buddy-reroll dex               All species and rarities
-  buddy-reroll schema [command]  Show JSON schema for a command
+${BOLD}  명령어${RESET}
+    ${CYAN}bdy check${RESET}              내 버디 확인
+    ${CYAN}bdy gacha${RESET} [N]          N연차 가챠! (기본 10)
+    ${CYAN}bdy reroll${RESET}             리롤 (버디 교체!)
+    ${CYAN}bdy restore${RESET}            원래 버디로 복원
+    ${CYAN}bdy dex${RESET}                도감 구경
+    ${CYAN}bdy schema${RESET} [cmd]       JSON 스키마 보기
 
-${BOLD}Agent DX flags:${RESET}
-  --json                         JSON output (logs to stderr)
-  --pick N                       Auto-select Nth result (reroll/gacha)
-  --dry-run                      Preview patch without applying (reroll)
-  --fields f1,f2                 Filter output fields
-  --limit N                      Limit gacha count
+${BOLD}  에이전트 플래그${RESET}
+    ${GREEN}--json${RESET}                 JSON 출력 (로그는 stderr)
+    ${GREEN}--pick N${RESET}               N번째 자동 선택
+    ${GREEN}--dry-run${RESET}              패치 미리보기
+    ${GREEN}--fields a,b${RESET}           필드 필터링
+    ${GREEN}--limit N${RESET}              가챠 횟수 제한
 
-${BOLD}Limits:${RESET}
-  Daily gacha: ${BASE_LIMIT}x/day (resets at midnight)
-  Event bonus: +${APOLOGY_EVENT.bonusRuns} extra gacha runs at ${APOLOGY_EVENT.pullsPerRun} pulls each
+${BOLD}  제한${RESET}
+    하루 ${BASE_LIMIT}회 (스타 유저 +1)  |  이벤트 ${APOLOGY_EVENT.pullsPerRun}연차 x${APOLOGY_EVENT.bonusRuns}회 보너스
 
-${BOLD}Install support:${RESET}
-  native binary  ~/.local/bin/claude(.exe) — binary patch
-  npm install    node_modules cli.js — text patch
-
-${DIM}Backup created before any patch. 'restore' to undo.${RESET}
+${DIM}  buddy 또는 bdy 둘 다 돼요! 쪼아요~${RESET}
 `);
 }
 
