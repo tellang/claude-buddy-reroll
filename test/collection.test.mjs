@@ -100,3 +100,46 @@ test('ingestCollectionResults keeps different eye and hat combinations as separa
 
   assert.equal(collection.ghost.variants.length, 2);
 });
+
+test('getCollection-style normalization can scope variants by owner', () => {
+  const collection = ingestCollectionResults({}, [
+    {
+      salt: 'buddy-reroll-aa',
+      bones: {
+        species: 'ghost',
+        rarity: 'rare',
+        eye: '·',
+        hat: 'none',
+        shiny: false,
+        stats: { DEBUGGING: 10 },
+      },
+    },
+    {
+      salt: 'buddy-reroll-ab',
+      bones: {
+        species: 'ghost',
+        rarity: 'epic',
+        eye: '@',
+        hat: 'tophat',
+        shiny: false,
+        stats: { DEBUGGING: 10 },
+      },
+    },
+  ], 'user-a');
+
+  const mixed = ingestCollectionResults(collection, [{
+    salt: 'buddy-reroll-ac',
+    bones: {
+      species: 'ghost',
+      rarity: 'legendary',
+      eye: '◉',
+      hat: 'crown',
+      shiny: true,
+      stats: { DEBUGGING: 10 },
+    },
+  }], 'user-b');
+
+  const scoped = normalizeCollectionEntry(mixed.ghost, 'user-a');
+  assert.equal(scoped.variants.length, 2);
+  assert.equal(scoped.bestRarity, 'epic');
+});

@@ -59,6 +59,44 @@ test('findDexBuddy fallback requires rarity match, not just species', () => {
   assert.equal(search.criteria.rarity, 'rare');
 });
 
+test('findDexBuddy matches the full stored form when replay salt no longer matches', () => {
+  const salts = ['buddy-reroll-a1', 'buddy-reroll-a2'];
+  const search = findDexBuddy({
+    userId: 'user-2',
+    targetSpecies: 'turtle',
+    entry: {
+      count: 2,
+      bestRarity: 'rare',
+      variants: [{
+        salt: 'buddy-reroll-legacy',
+        ownerId: 'user-2',
+        bones: {
+          species: 'turtle',
+          rarity: 'rare',
+          eye: '@',
+          hat: 'halo',
+          shiny: true,
+          stats: {},
+        },
+    }],
+    },
+    randomSaltFn: () => salts.shift(),
+    rollFn: (_userId, salt) => ({
+      bones: salt === 'buddy-reroll-legacy'
+        ? { species: 'cat', rarity: 'common', eye: '·', hat: 'none', shiny: false, stats: {} }
+        : salt === 'buddy-reroll-a1'
+          ? { species: 'turtle', rarity: 'rare', eye: '@', hat: 'halo', shiny: false, stats: {} }
+          : { species: 'turtle', rarity: 'rare', eye: '@', hat: 'halo', shiny: true, stats: {} },
+    }),
+  });
+
+  assert.ok(search.found);
+  assert.equal(search.found.salt, 'buddy-reroll-a2');
+  assert.equal(search.criteria.eye, '@');
+  assert.equal(search.criteria.hat, 'halo');
+  assert.equal(search.criteria.shiny, true);
+});
+
 test('findDexBuddy returns null result when criteria cannot be matched', () => {
   const search = findDexBuddy({
     userId: 'user-3',

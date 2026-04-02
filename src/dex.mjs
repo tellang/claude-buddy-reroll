@@ -1,14 +1,17 @@
 import { randomSalt, roll } from './engine.mjs';
 import { getPreferredVariant, normalizeCollectionEntry } from './collection.mjs';
 
-function buildDexCriteria(targetSpecies, entry) {
-  const normalized = normalizeCollectionEntry(entry);
-  const preferredVariant = getPreferredVariant(normalized);
+function buildDexCriteria(targetSpecies, entry, userId) {
+  const normalized = normalizeCollectionEntry(entry, userId);
+  const preferredVariant = getPreferredVariant(normalized, userId);
 
   if (preferredVariant?.salt) {
     return {
       species: targetSpecies,
       rarity: preferredVariant.bones.rarity,
+      eye: preferredVariant.bones.eye,
+      hat: preferredVariant.bones.hat,
+      shiny: preferredVariant.bones.shiny,
       preferredSalt: preferredVariant.salt,
       source: 'saved-variant',
     };
@@ -18,6 +21,9 @@ function buildDexCriteria(targetSpecies, entry) {
     return {
       species: targetSpecies,
       rarity: normalized.bestRarity,
+      eye: preferredVariant?.bones.eye ?? null,
+      hat: preferredVariant?.bones.hat ?? null,
+      shiny: preferredVariant?.bones.shiny ?? null,
       source: 'rarity-match',
     };
   }
@@ -31,7 +37,10 @@ function buildDexCriteria(targetSpecies, entry) {
 
 function matchesCriteria(result, criteria) {
   return result.bones.species === criteria.species &&
-    (!criteria.rarity || result.bones.rarity === criteria.rarity);
+    (!criteria.rarity || result.bones.rarity === criteria.rarity) &&
+    (!criteria.eye || result.bones.eye === criteria.eye) &&
+    (!criteria.hat || result.bones.hat === criteria.hat) &&
+    (criteria.shiny == null || result.bones.shiny === criteria.shiny);
 }
 
 export function findDexBuddy({
@@ -42,7 +51,7 @@ export function findDexBuddy({
   randomSaltFn = randomSalt,
   rollFn = roll,
 }) {
-  const criteria = buildDexCriteria(targetSpecies, entry);
+  const criteria = buildDexCriteria(targetSpecies, entry, userId);
 
   if (criteria.preferredSalt) {
     const replay = {

@@ -30,6 +30,7 @@ import { renderSprite } from './sprites.mjs';
 import { formatEye, formatStars, toTerminalSafeText } from './terminal.mjs';
 import { findNextHighlightIndex, getRevealAction } from './gacha-reveal.mjs';
 import { BUDDY_LORE, wrapLore } from './buddy-lore.mjs';
+import { loadProfileState, saveProfileState } from './profile-state.mjs';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -40,8 +41,6 @@ const RED = '\x1b[31m';
 const CYAN = '\x1b[36m';
 const MAGENTA = '\x1b[35m';
 
-const HOME = process.env.USERPROFILE || process.env.HOME || '';
-const STATE_PATH = resolve(HOME, '.claude', 'buddy-reroll-state.json');
 const BASE_LIMIT = 3;
 const STAR_BONUS = 1; // starred users get 1 extra roll (4 total = 40 pulls)
 const DEFAULT_PULLS = 10;
@@ -122,16 +121,16 @@ function mapResult(result, index = null) {
 
 // ─── Star check ─────────────────────────────────────
 
-let _starCache = null;
+const _starCache = new Map();
 
-async function isStarred() {
-  if (_starCache !== null) return _starCache;
+async function isStarred(userId = 'anon') {
+  if (_starCache.has(userId)) return _starCache.get(userId);
 
   // Check persisted state first — once starred, never call gh again
   try {
-    const state = existsSync(STATE_PATH) ? JSON.parse(readFileSync(STATE_PATH, 'utf-8')) : {};
+    const state = loadProfileState(userId);
     if (state.starred === true) {
-      _starCache = true;
+      _starCache.set(userId, true);
       return true;
     }
   } catch {}
@@ -139,49 +138,39 @@ async function isStarred() {
   try {
     const { execSync } = await import('child_process');
     const out = execSync('gh api user --jq .login', { encoding: 'utf-8', timeout: 5000, stdio: ['pipe','pipe','pipe'] }).trim();
-    if (!out) { _starCache = false; return false; }
+    if (!out) { _starCache.set(userId, false); return false; }
     const stars = execSync('gh api repos/tellang/claude-buddy-reroll/stargazers --jq ".[].login"', { encoding: 'utf-8', timeout: 5000, stdio: ['pipe','pipe','pipe'] });
-    _starCache = stars.includes(out);
+    const starred = stars.includes(out);
+    _starCache.set(userId, starred);
     // Persist so we never call gh again
-    if (_starCache) {
+    if (starred) {
       try {
-        const state = existsSync(STATE_PATH) ? JSON.parse(readFileSync(STATE_PATH, 'utf-8')) : {};
+        const state = loadProfileState(userId);
         state.starred = true;
         state.starredAt = new Date().toISOString();
-        saveState(state);
+        saveProfileState(userId, state);
       } catch {}
     }
-    return _starCache;
+    return starred;
   } catch {
-    _starCache = false;
+    _starCache.set(userId, false);
     return false;
   }
 }
 
-async function getDailyLimit() {
-  const starred = await isStarred();
+async function getDailyLimit(userId = 'anon') {
+  const starred = await isStarred(userId);
   return starred ? BASE_LIMIT + STAR_BONUS : BASE_LIMIT;
 }
 
 // ─── State (daily gacha limit) ──────────────────────
 
-function loadState() {
-  try {
-    if (existsSync(STATE_PATH)) {
-      const parsed = JSON.parse(readFileSync(STATE_PATH, 'utf-8'));
-      return {
-        rolls: [],
-        bestRarity: 'common',
-        eventUses: [],
-        ...parsed,
-      };
-    }
-  } catch {}
-  return { rolls: [], bestRarity: 'common', eventUses: [] };
+function loadState(userId = 'anon') {
+  return loadProfileState(userId);
 }
 
-function saveState(state) {
-  writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
+function saveState(userId, state) {
+  saveProfileState(userId || 'anon', state);
 }
 
 function todayKey() {
@@ -215,7 +204,7 @@ function maybeApplyEventGuarantee(state, allowance, userId, results) {
   return applyTenPullGuarantee(results, () => generateGuaranteedEpicRoll(userId));
 }
 
-function recordRoll(state, mode = 'daily', metadata = {}) {
+function recordRoll(userId, state, mode = 'daily', metadata = {}) {
   if (mode === 'event') {
     if (!state.eventUses) state.eventUses = [];
     state.eventUses.push({ id: APOLOGY_EVENT.id, ts: Date.now(), hadEpic: metadata.hadEpic === true });
@@ -227,14 +216,14 @@ function recordRoll(state, mode = 'daily', metadata = {}) {
   const cutoff = Date.now() - 30 * 86400000;
   state.rolls = state.rolls.filter(r => r.ts > cutoff);
   state.eventUses = (state.eventUses || []).filter(r => r.ts > cutoff);
-  saveState(state);
+  saveState(userId, state);
 }
 
-async function getRollAllowance(state, options = {}) {
+async function getRollAllowance(userId, state, options = {}) {
   const supportsEvent = options.supportsEvent ?? false;
-  const limit = await getDailyLimit();
+  const limit = await getDailyLimit(userId);
   const used = getRollsToday(state);
-  const starred = await isStarred();
+  const starred = await isStarred(userId);
   const eventRemaining = getApologyEventRemaining(state);
 
   if (used < limit) {
@@ -273,7 +262,7 @@ async function getRollAllowance(state, options = {}) {
 }
 
 async function checkLimit(state, options = {}) {
-  const allowance = await getRollAllowance(state, options);
+  const allowance = await getRollAllowance(options.userId || 'anon', state, options);
   const { allowed, mode, pullCount, limit, used, starred, eventRemaining } = allowance;
 
   if (!allowed) {
@@ -584,10 +573,10 @@ async function cmdCheck() {
   const { userId, install, currentSalt } = context;
   const salt = currentSalt || ORIGINAL_SALT;
   const buddy = roll(userId, salt);
-  const state = loadState();
-  const limit = await getDailyLimit();
+  const state = loadState(userId);
+  const limit = await getDailyLimit(userId);
   const used = getRollsToday(state);
-  const starred = await isStarred();
+  const starred = await isStarred(userId);
   const eventRemaining = getApologyEventRemaining(state);
 
   if (flags.json) {
@@ -616,23 +605,22 @@ async function cmdCheck() {
 }
 
 async function cmdGacha(count = 10) {
-  const state = loadState();
-  const allowance = await checkLimit(state, { supportsEvent: true });
+  const context = requireClaudeContext();
+  if (!context) return;
+  const { userId } = context;
+  const state = loadState(userId);
+  const allowance = await checkLimit(state, { supportsEvent: true, userId });
   if (!allowance.allowed) {
     if (flags.json) errorJson('QUOTA_EXCEEDED', `Daily limit reached (${allowance.used}/${allowance.limit})`);
     return;
   }
-
-  const context = requireClaudeContext();
-  if (!context) return;
-  const { userId } = context;
   const rollCount = allowance.mode === 'event' ? allowance.pullCount : count;
 
   if (flags.json) {
     const rawResults = multiRoll(userId, rollCount);
     const results = maybeApplyEventGuarantee(state, allowance, userId, rawResults);
-    recordRoll(state, allowance.mode, { hadEpic: results.some(isEpicOrBetter) });
-    addBatchToCollection(results);
+    recordRoll(userId, state, allowance.mode, { hadEpic: results.some(isEpicOrBetter) });
+    addBatchToCollection(results, userId);
 
     const mapped = results.map((result, index) => mapResult(result, index));
 
@@ -640,7 +628,7 @@ async function cmdGacha(count = 10) {
     const best = results.reduce((a, b) => RARITY_ORDER[a.bones.rarity] >= RARITY_ORDER[b.bones.rarity] ? a : b);
     if (isUpgrade(state.bestRarity || 'common', best.bones.rarity)) {
       state.bestRarity = best.bones.rarity;
-      saveState(state);
+      saveState(userId, state);
     }
 
     output({
@@ -672,8 +660,8 @@ async function cmdGacha(count = 10) {
   console.log(`\n${DIM}  Results: ${Object.entries(rarityCount).map(([k, v]) => `${k}:${v}`).join(' ')}${RESET}`);
 
   // Record roll + save to collection
-  recordRoll(state, allowance.mode, { hadEpic: results.some(isEpicOrBetter) });
-  addBatchToCollection(results);
+  recordRoll(userId, state, allowance.mode, { hadEpic: results.some(isEpicOrBetter) });
+  addBatchToCollection(results, userId);
 
   // Check upgrade → star request
   const best = results.reduce((a, b) =>
@@ -681,7 +669,7 @@ async function cmdGacha(count = 10) {
   );
   if (isUpgrade(state.bestRarity || 'common', best.bones.rarity)) {
     state.bestRarity = best.bones.rarity;
-    saveState(state);
+    saveState(userId, state);
     speakiStarRequest(best.bones.species, best.bones.rarity);
   }
 
@@ -696,16 +684,15 @@ async function cmdGacha(count = 10) {
 }
 
 async function cmdReroll() {
-  const state = loadState();
-  const allowance = await checkLimit(state, { supportsEvent: false });
+  const context = requireClaudeContext({ needsInstall: true, needsSalt: true, needsPatchSupport: true });
+  if (!context) return;
+  const { userId, install, currentSalt } = context;
+  const state = loadState(userId);
+  const allowance = await checkLimit(state, { supportsEvent: false, userId });
   if (!allowance.allowed) {
     if (flags.json) errorJson('QUOTA_EXCEEDED', `Daily limit reached (${allowance.used}/${allowance.limit})`);
     return;
   }
-
-  const context = requireClaudeContext({ needsInstall: true, needsSalt: true, needsPatchSupport: true });
-  if (!context) return;
-  const { userId, install, currentSalt } = context;
 
   if (flags.json) {
     const count = allowance.pullCount;
@@ -736,7 +723,7 @@ async function cmdReroll() {
       if (!result.success) errorJson('PATCH_FAILED', result.error);
       updatePatchedSalt(selected.salt);
       const soulResult = clearSoul();
-      recordRoll(state, allowance.mode);
+      recordRoll(userId, state, allowance.mode);
 
       output({
         command: 'reroll',
@@ -812,7 +799,7 @@ async function cmdReroll() {
   const soulResult = clearSoul();
 
   // Record
-  recordRoll(state, allowance.mode);
+  recordRoll(userId, state, allowance.mode);
 
   // Report based on install type
   if (result.type === 'npm') {
@@ -838,7 +825,7 @@ async function cmdReroll() {
   const oldRarity = state.bestRarity || 'common';
   if (isUpgrade(oldRarity, selected.bones.rarity)) {
     state.bestRarity = selected.bones.rarity;
-    saveState(state);
+    saveState(userId, state);
     speakiStarRequest(selected.bones.species, selected.bones.rarity);
   }
 }
@@ -880,7 +867,7 @@ async function cmdDex() {
       const targetSpecies = SPECIES[idx];
       const context = requireClaudeContext({ needsInstall: true, needsSalt: true, needsPatchSupport: true });
       if (!context) return;
-      const collection = getCollection();
+      const collection = getCollection(context.userId);
       const search = findDexBuddy({
         userId: context.userId,
         targetSpecies,
@@ -922,9 +909,9 @@ async function cmdDex() {
       return;
     }
 
-    const state = loadState();
-    const limit = await getDailyLimit();
-    const starred = await isStarred();
+    const state = loadState(context.userId);
+    const limit = await getDailyLimit(context.userId);
+    const starred = await isStarred(context.userId);
     const eventRemaining = getApologyEventRemaining(state);
     output({
       command: 'dex',
@@ -940,17 +927,19 @@ async function cmdDex() {
     return;
   }
 
+  const previewContext = resolveClaudeContext();
+
   // Show collection view
-  console.log(renderCollection());
+  console.log(renderCollection(previewContext.userId));
 
   // Also show game info
   console.log(`${BOLD}  Eyes:${RESET} ${EYES.join('  ')}`);
   console.log(`${BOLD}  Hats:${RESET} ${HATS.filter(h => h !== 'none').join(', ')}`);
   console.log(`${BOLD}  Stats:${RESET} ${STATS.join(', ')}`);
   console.log(`  ${DIM}Shiny chance: 1%${RESET}`);
-  const limit = await getDailyLimit();
-  const starred = await isStarred();
-  const eventRemaining = getApologyEventRemaining(loadState());
+  const limit = await getDailyLimit(previewContext.userId);
+  const starred = await isStarred(previewContext.userId);
+  const eventRemaining = getApologyEventRemaining(loadState(previewContext.userId));
   console.log(`  ${DIM}Daily gacha limit: ${limit}${starred ? ' (⭐ star bonus!)' : ' (+1 with GitHub star)'}${RESET}`);
   console.log(`  ${DIM}Apology event: +${APOLOGY_EVENT.bonusRuns} extra ${APOLOGY_EVENT.pullsPerRun}-pulls (${eventRemaining} left)${RESET}\n`);
 
@@ -960,7 +949,7 @@ async function cmdDex() {
     epic: '\x1b[35m', legendary: '\x1b[33;1m',
   };
 
-  const col = getCollection();
+  const col = getCollection(previewContext.userId);
   const selectorItems = SPECIES.map((sp) => {
     const entry = col[sp];
     const discovered = !!entry;

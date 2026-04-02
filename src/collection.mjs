@@ -1,12 +1,8 @@
 // Collection (Pokédex) — tracks which buddies you've collected
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { resolve } from 'path';
 import { EYES, HATS, SPECIES, RARITIES, RARITY_STARS } from './engine.mjs';
 import { padAnsiEnd } from './ansi.mjs';
-
-const HOME = process.env.USERPROFILE || process.env.HOME || '';
-const STATE_PATH = resolve(HOME, '.claude', 'buddy-reroll-state.json');
+import { loadProfileState, saveProfileState } from './profile-state.mjs';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -42,6 +38,7 @@ function normalizeVariant(variant) {
   if (!variant?.salt || !variant?.bones?.species || !variant?.bones?.rarity) return null;
   return {
     salt: variant.salt,
+    ownerId: typeof variant.ownerId === 'string' ? variant.ownerId : null,
     bones: cloneBones(variant.bones),
     discoveredAt: typeof variant.discoveredAt === 'number' ? variant.discoveredAt : Date.now(),
   };
@@ -62,29 +59,29 @@ function compareVariants(a, b) {
   return Number(b.bones.shiny) - Number(a.bones.shiny);
 }
 
-export function getPreferredVariant(entry) {
-  const variants = normalizeCollectionEntry(entry).variants;
+export function getPreferredVariant(entry, ownerId = null) {
+  const variants = normalizeCollectionEntry(entry, ownerId).variants;
   if (variants.length === 0) return null;
   return [...variants].sort(compareVariants)[0];
 }
 
-export function getLatestVariant(entry) {
-  const variants = normalizeCollectionEntry(entry).variants;
+export function getLatestVariant(entry, ownerId = null) {
+  const variants = normalizeCollectionEntry(entry, ownerId).variants;
   if (variants.length === 0) return null;
   return [...variants].sort((a, b) => (b.discoveredAt || 0) - (a.discoveredAt || 0))[0];
 }
 
-export function getCollectedRarities(entry) {
-  return Array.from(new Set(normalizeCollectionEntry(entry).variants.map((variant) => variant.bones.rarity)));
+export function getCollectedRarities(entry, ownerId = null) {
+  return Array.from(new Set(normalizeCollectionEntry(entry, ownerId).variants.map((variant) => variant.bones.rarity)));
 }
 
-export function getShinyVariant(entry) {
-  const variants = normalizeCollectionEntry(entry).variants;
+export function getShinyVariant(entry, ownerId = null) {
+  const variants = normalizeCollectionEntry(entry, ownerId).variants;
   return variants.find((variant) => variant.bones.shiny) || null;
 }
 
-export function getRarityCompletion(entry) {
-  const variants = normalizeCollectionEntry(entry).variants;
+export function getRarityCompletion(entry, ownerId = null) {
+  const variants = normalizeCollectionEntry(entry, ownerId).variants;
   const found = new Set(variants.map((variant) => variant.bones.rarity));
   return RARITIES.map((rarity) => ({
     rarity,
@@ -92,10 +89,13 @@ export function getRarityCompletion(entry) {
   }));
 }
 
-export function normalizeCollectionEntry(entry) {
-  const variants = Array.isArray(entry?.variants)
+export function normalizeCollectionEntry(entry, ownerId = null) {
+  const allVariants = Array.isArray(entry?.variants)
     ? entry.variants.map(normalizeVariant).filter(Boolean)
     : [];
+  const variants = ownerId
+    ? allVariants.filter((variant) => !variant.ownerId || variant.ownerId === ownerId)
+    : allVariants;
   const uniqueVariants = [];
   const seenVariantKeys = new Set();
 
@@ -119,12 +119,13 @@ export function normalizeCollectionEntry(entry) {
   };
 }
 
-export function ingestCollectionEntry(entry, result) {
+export function ingestCollectionEntry(entry, result, ownerId = null) {
   const next = normalizeCollectionEntry(entry);
   next.count += 1;
 
   const variant = normalizeVariant({
     salt: result?.salt,
+    ownerId,
     bones: result?.bones,
     discoveredAt: Date.now(),
   });
@@ -151,7 +152,7 @@ export function ingestCollectionEntry(entry, result) {
   return next;
 }
 
-export function ingestCollectionResults(collection, results) {
+export function ingestCollectionResults(collection, results, ownerId = null) {
   const next = {};
   for (const species of Object.keys(collection || {})) {
     next[species] = normalizeCollectionEntry(collection[species]);
@@ -160,48 +161,34 @@ export function ingestCollectionResults(collection, results) {
   for (const result of results) {
     const species = result?.bones?.species;
     if (!species) continue;
-    next[species] = ingestCollectionEntry(next[species], result);
+    next[species] = ingestCollectionEntry(next[species], result, ownerId);
   }
 
   return next;
 }
 
-// ─── State I/O ──────────────────────────────────────
-
-function loadState() {
-  try {
-    if (existsSync(STATE_PATH)) return JSON.parse(readFileSync(STATE_PATH, 'utf-8'));
-  } catch {}
-  return {};
-}
-
-function saveState(state) {
-  writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
-}
-
 // ─── Collection ops ─────────────────────────────────
 
-export function addToCollection(result) {
-  const state = loadState();
-  const current = state.collection || {};
-  state.collection = ingestCollectionResults(current, [result]);
-  saveState(state);
-  return state.collection[result?.bones?.species];
+export function addToCollection(result, ownerId = null) {
+  const profile = loadProfileState(ownerId || 'anon');
+  profile.collection = ingestCollectionResults(profile.collection || {}, [result], ownerId);
+  saveProfileState(ownerId || 'anon', profile);
+  return profile.collection[result?.bones?.species];
 }
 
-export function addBatchToCollection(results) {
-  const state = loadState();
-  state.collection = ingestCollectionResults(state.collection || {}, results);
-  saveState(state);
+export function addBatchToCollection(results, ownerId = null) {
+  const profile = loadProfileState(ownerId || 'anon');
+  profile.collection = ingestCollectionResults(profile.collection || {}, results, ownerId);
+  saveProfileState(ownerId || 'anon', profile);
 }
 
-export function getCollection() {
-  const state = loadState();
-  return ingestCollectionResults(state.collection || {}, []);
+export function getCollection(ownerId = null) {
+  const profile = loadProfileState(ownerId || 'anon');
+  return ingestCollectionResults(profile.collection || {}, [], ownerId);
 }
 
-export function getCollectionStats() {
-  const col = getCollection();
+export function getCollectionStats(ownerId = null) {
+  const col = getCollection(ownerId);
   const collected = Object.keys(col).length;
   const total = SPECIES.length;
   const pct = Math.round((collected / total) * 100);
@@ -214,9 +201,9 @@ export function getCollectionStats() {
 
 // ─── Collection display ─────────────────────────────
 
-export function renderCollection() {
-  const col = getCollection();
-  const stats = getCollectionStats();
+export function renderCollection(ownerId = null) {
+  const col = getCollection(ownerId);
+  const stats = getCollectionStats(ownerId);
   const renderedEntries = SPECIES.map((species, index) => renderSpeciesEntry(species, col[species], index));
   const leftColumnWidth = Math.max(28, ...renderedEntries.map((entry) => entry.width)) + 2;
 
