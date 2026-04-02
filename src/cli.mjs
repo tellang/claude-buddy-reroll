@@ -39,12 +39,31 @@ let _starCache = null;
 
 async function isStarred() {
   if (_starCache !== null) return _starCache;
+
+  // Check persisted state first — once starred, never call gh again
+  try {
+    const state = existsSync(STATE_PATH) ? JSON.parse(readFileSync(STATE_PATH, 'utf-8')) : {};
+    if (state.starred === true) {
+      _starCache = true;
+      return true;
+    }
+  } catch {}
+
   try {
     const { execSync } = await import('child_process');
     const out = execSync('gh api user --jq .login', { encoding: 'utf-8', timeout: 5000, stdio: ['pipe','pipe','pipe'] }).trim();
     if (!out) { _starCache = false; return false; }
     const stars = execSync('gh api repos/tellang/claude-buddy-reroll/stargazers --jq ".[].login"', { encoding: 'utf-8', timeout: 5000, stdio: ['pipe','pipe','pipe'] });
     _starCache = stars.includes(out);
+    // Persist so we never call gh again
+    if (_starCache) {
+      try {
+        const state = existsSync(STATE_PATH) ? JSON.parse(readFileSync(STATE_PATH, 'utf-8')) : {};
+        state.starred = true;
+        state.starredAt = new Date().toISOString();
+        saveState(state);
+      } catch {}
+    }
     return _starCache;
   } catch {
     _starCache = false;

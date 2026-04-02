@@ -7,9 +7,9 @@ import { saveInstallContext, maskUserId } from '../src/context.mjs';
 
 const HOME = process.env.USERPROFILE || process.env.HOME || '';
 const SETTINGS = resolve(HOME, '.claude', 'settings.json');
-const SWAP_SRC = resolve(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')), 'buddy-swap.sh');
-const SWAP_DST = resolve(HOME, '.claude', 'buddy-swap.sh');
-const HOOK_CMD = `bash ${SWAP_DST.replace(/\\/g, '/')}`;
+const SWAP_SRC = resolve(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')), 'buddy-swap.mjs');
+const SWAP_DST = resolve(HOME, '.claude', 'buddy-swap.mjs');
+const HOOK_CMD = `node ${SWAP_DST.replace(/\\/g, '/')}`;
 
 try {
   // 1. Install Bun if not present (needed for accurate Bun.hash)
@@ -34,7 +34,7 @@ try {
 
   // 2. Copy swap script
   copyFileSync(SWAP_SRC, SWAP_DST);
-  console.log('✓ buddy-swap.sh copied to ~/.claude/');
+  console.log('✓ buddy-swap.mjs copied to ~/.claude/');
 
   const context = saveInstallContext();
   console.log(`✓ Runtime context saved: ${context.path}`);
