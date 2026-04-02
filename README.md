@@ -18,6 +18,7 @@ npm i -g claude-buddy-reroll
 설치하면 `buddy`와 `bdy` 명령어가 생겨요.
 
 기본 화면은 스피키 스타일의 리치 터미널 홈으로 시작하고, `dex`는 발견한 개체를 다시 적용할 수 있게 설계돼 있어요.
+지금은 `fullscreen dex`, `animated preview`, `form collection`, `one-by-one gacha reveal`까지 들어가 있어요.
 
 처음 설치할 때 런타임 셋업이 자동으로 Bun과 Claude 연동을 준비해요. 자동 셋업이 실패했거나 `Bun is required` 에러가 보이면 아래를 한 번 실행하세요.
 
@@ -37,7 +38,7 @@ bdy check              # 내 버디 확인
 bdy gacha              # 10연차 가챠!
 bdy gacha 20           # 20연차!
 bdy reroll             # 리롤 (인터랙티브 버디 교체)
-bdy dex                # 18종 도감 + 발견 개체 재적용
+bdy dex                # fullscreen 도감 + 발견 개체 재적용
 bdy restore            # 원래 버디로 복원
 bdy setup              # Bun / 런타임 셋업 복구
 ```
@@ -47,6 +48,8 @@ bdy setup              # Bun / 런타임 셋업 복구
 - npm-only 제품 표면
 - 스피키 감성의 richer terminal UI
 - species-only가 아니라 discovered variant를 우선 재적용하는 dex
+- species progress와 form collection을 분리한 도감
+- 10연차 one-by-one reveal + highlight-aware skip
 - JSON 모드는 유지해서 에이전트/스크립트 자동화도 가능
 
 ### Agent DX (JSON 모드)
