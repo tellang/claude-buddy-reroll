@@ -1,0 +1,9 @@
+{
+  "active": false,
+  "started_at": "2026-04-02T00:00:00+09:00",
+  "current_phase": "completed",
+  "task_description": "Enforce Bun.hash, dynamic Claude context extraction, and apology event bonus in buddy-reroll",
+  "iteration": 1,
+  "last_turn_at": "2026-04-02T01:44:49.735Z",
+  "completed_at": "2026-04-02T00:10:00+09:00"
+}

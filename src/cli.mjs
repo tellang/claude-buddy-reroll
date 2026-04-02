@@ -5,7 +5,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS } from './engine.mjs';
+import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIES, RARITIES, RARITY_WEIGHTS } from './engine.mjs';
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { resolveClaudeContext, updatePatchedSalt } from './context.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
@@ -28,10 +28,65 @@ const BASE_LIMIT = 3;
 const STAR_BONUS = 1; // starred users get 1 extra roll (4 total = 40 pulls)
 const DEFAULT_PULLS = 10;
 const APOLOGY_EVENT = {
-  id: 'apology-2026-04-bun-fix',
-  bonusRuns: 2,
-  pullsPerRun: 5,
+  id: 'launch-2026-04-30pull',
+  bonusRuns: 1,
+  pullsPerRun: 30,
 };
+
+// ─── Flag parsing ────────────────────────────────────
+
+const argv = process.argv.slice(2);
+const flags = {};
+const positional = [];
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] === '--json') { flags.json = true; }
+  else if (argv[i] === '--pick' && argv[i + 1]) { flags.pick = parseInt(argv[++i]); }
+  else if (argv[i] === '--dry-run') { flags.dryRun = true; }
+  else if (argv[i] === '--fields' && argv[i + 1]) { flags.fields = argv[++i].split(','); }
+  else if (argv[i] === '--limit' && argv[i + 1]) { flags.limit = parseInt(argv[++i]); }
+  else { positional.push(argv[i]); }
+}
+const [cmd, ...args] = positional;
+
+// ─── Output helpers ──────────────────────────────────
+
+function filterFields(obj, fields) {
+  if (Array.isArray(obj)) return obj.map(item => filterFields(item, fields));
+  const result = {};
+  for (const f of fields) {
+    if (f in obj) result[f] = obj[f];
+    // support nested: "bones.rarity"
+    if (f.includes('.')) {
+      const [parent, child] = f.split('.');
+      if (obj[parent] && child in obj[parent]) {
+        if (!result[parent]) result[parent] = {};
+        result[parent][child] = obj[parent][child];
+      }
+    }
+  }
+  return result;
+}
+
+function output(data) {
+  if (flags.fields) {
+    data = filterFields(data, flags.fields);
+  }
+  process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+}
+
+function log(...logArgs) {
+  // In JSON mode, logs go to stderr. In normal mode, to stdout.
+  if (flags.json) {
+    process.stderr.write(logArgs.join(' ') + '\n');
+  } else {
+    console.log(...logArgs);
+  }
+}
+
+function errorJson(code, message) {
+  output({ error: { code, message } });
+  process.exit(1);
+}
 
 // ─── Star check ─────────────────────────────────────
 
@@ -176,22 +231,22 @@ async function checkLimit(state, options = {}) {
   const { allowed, mode, pullCount, limit, used, starred, eventRemaining } = allowance;
 
   if (!allowed) {
-    console.log(`\n${YELLOW}  ⚠ 오늘 가챠 ${limit}회 소진! 내일 다시 도전하세요.${RESET}`);
+    log(`\n${YELLOW}  ⚠ 오늘 가챠 ${limit}회 소진! 내일 다시 도전하세요.${RESET}`);
     if (eventRemaining === 0) {
-      console.log(`${DIM}  이벤트 보상 5연차 2회도 모두 사용했습니다.${RESET}`);
+      log(`${DIM}  이벤트 보상 5연차 2회도 모두 사용했습니다.${RESET}`);
     }
-    if (!starred) console.log(`${DIM}  💡 GitHub Star 찍으면 +1회 보너스! (30뽑 → 40뽑)${RESET}`);
-    console.log(`${DIM}  (${used}/${limit} used today)${RESET}\n`);
+    if (!starred) log(`${DIM}  💡 GitHub Star 찍으면 +1회 보너스! (30뽑 → 40뽑)${RESET}`);
+    log(`${DIM}  (${used}/${limit} used today)${RESET}\n`);
     return allowance;
   }
 
   const tag = starred ? ' ⭐' : '';
   if (mode === 'event') {
-    console.log(`${DIM}  이벤트 보상 사용 가능: ${eventRemaining}/${APOLOGY_EVENT.bonusRuns} | 이번 차수 ${pullCount}연차${RESET}`);
+    log(`${DIM}  이벤트 보상 사용 가능: ${eventRemaining}/${APOLOGY_EVENT.bonusRuns} | 이번 차수 ${pullCount}연차${RESET}`);
   } else {
-    console.log(`${DIM}  가챠 잔여: ${limit - used}/${limit}${tag}${RESET}`);
+    log(`${DIM}  가챠 잔여: ${limit - used}/${limit}${tag}${RESET}`);
     if (eventRemaining > 0) {
-      console.log(`${DIM}  이벤트 보상: 5연차 ${eventRemaining}회 남음${RESET}`);
+      log(`${DIM}  이벤트 보상: 5연차 ${eventRemaining}회 남음${RESET}`);
     }
   }
   return allowance;
@@ -231,17 +286,26 @@ function requireClaudeContext(options = {}) {
   const context = resolveClaudeContext();
 
   if (!context.userId || context.userId === 'anon') {
+    if (flags.json) {
+      errorJson('NO_ACCOUNT', 'Claude account ID not found in ~/.claude.json');
+    }
     console.log(`\n${RED}  ✗ Claude account ID를 ~/.claude.json 에서 찾지 못했습니다.${RESET}`);
     console.log(`${DIM}  oauthAccount.accountUuid 또는 userID가 필요합니다.${RESET}\n`);
     return null;
   }
 
   if (needsInstall && !context.install) {
+    if (flags.json) {
+      errorJson('NO_INSTALL', 'Claude Code installation not found');
+    }
     console.log(`\n${RED}  ✗ Claude Code 설치를 찾지 못했습니다.${RESET}\n`);
     return null;
   }
 
   if (needsSalt && !context.currentSalt) {
+    if (flags.json) {
+      errorJson('NO_SALT', 'Could not read current SALT from Claude Code installation');
+    }
     console.log(`\n${RED}  ✗ 설치된 Claude Code에서 현재 SALT를 동적으로 읽지 못했습니다.${RESET}`);
     console.log(`${DIM}  install-hook을 다시 실행하거나 설치 경로를 확인해 주세요.${RESET}\n`);
     return null;
@@ -256,6 +320,27 @@ async function cmdCheck() {
   const context = requireClaudeContext();
   if (!context) return;
   const { userId, install, currentSalt } = context;
+
+  if (flags.json) {
+    const salt = currentSalt || ORIGINAL_SALT;
+    const buddy = roll(userId, salt);
+    const state = loadState();
+    const limit = await getDailyLimit();
+    const used = getRollsToday(state);
+    const starred = await isStarred();
+    const eventRemaining = getApologyEventRemaining(state);
+
+    output({
+      command: 'check',
+      account: userId.slice(0, 8),
+      install: install ? { type: install.type, path: install.path } : null,
+      salt: salt,
+      patched: salt !== ORIGINAL_SALT,
+      buddy: buddy.bones,
+      quota: { used, limit, remaining: limit - used, starred, eventRemaining },
+    });
+    return;
+  }
 
   console.log(`\n${DIM}Account: ${userId === 'anon' ? 'anonymous' : userId.slice(0, 8) + '...'}${RESET}`);
 
@@ -285,12 +370,50 @@ async function cmdCheck() {
 async function cmdGacha(count = 10) {
   const state = loadState();
   const allowance = await checkLimit(state, { supportsEvent: true });
-  if (!allowance.allowed) return;
+  if (!allowance.allowed) {
+    if (flags.json) errorJson('QUOTA_EXCEEDED', `Daily limit reached (${allowance.used}/${allowance.limit})`);
+    return;
+  }
 
   const context = requireClaudeContext();
   if (!context) return;
   const { userId } = context;
   const rollCount = allowance.mode === 'event' ? allowance.pullCount : count;
+
+  if (flags.json) {
+    const results = multiRoll(userId, rollCount);
+    recordRoll(state, allowance.mode);
+    addBatchToCollection(results);
+
+    const mapped = results.map((r, i) => ({
+      index: i + 1,
+      salt: r.salt,
+      species: r.bones.species,
+      rarity: r.bones.rarity,
+      stars: RARITY_STARS[r.bones.rarity],
+      eye: r.bones.eye,
+      hat: r.bones.hat,
+      shiny: r.bones.shiny,
+      stats: r.bones.stats,
+    }));
+
+    // Check upgrade
+    const best = results.reduce((a, b) => RARITY_ORDER[a.bones.rarity] >= RARITY_ORDER[b.bones.rarity] ? a : b);
+    if (isUpgrade(state.bestRarity || 'common', best.bones.rarity)) {
+      state.bestRarity = best.bones.rarity;
+      saveState(state);
+    }
+
+    output({
+      command: 'gacha',
+      count: rollCount,
+      results: mapped,
+      best: mapped[results.indexOf(best)],
+      quota: allowance,
+    });
+    return;
+  }
+
   console.log(`\n${BOLD}  🎰 BUDDY GACHA — Rolling ${rollCount}x...${RESET}\n`);
 
   const results = multiRoll(userId, rollCount);
@@ -340,11 +463,76 @@ async function cmdGacha(count = 10) {
 async function cmdReroll() {
   const state = loadState();
   const allowance = await checkLimit(state, { supportsEvent: false });
-  if (!allowance.allowed) return;
+  if (!allowance.allowed) {
+    if (flags.json) errorJson('QUOTA_EXCEEDED', `Daily limit reached (${allowance.used}/${allowance.limit})`);
+    return;
+  }
 
   const context = requireClaudeContext({ needsInstall: true, needsSalt: true });
   if (!context) return;
   const { userId, install, currentSalt } = context;
+
+  if (flags.json) {
+    const count = allowance.pullCount;
+    const candidates = multiRoll(userId, count);
+    const mapped = candidates.map((r, i) => ({
+      index: i + 1,
+      salt: r.salt,
+      species: r.bones.species,
+      rarity: r.bones.rarity,
+      stars: RARITY_STARS[r.bones.rarity],
+      eye: r.bones.eye,
+      hat: r.bones.hat,
+      shiny: r.bones.shiny,
+      stats: r.bones.stats,
+    }));
+
+    if (flags.pick != null) {
+      const idx = flags.pick - 1;
+      if (idx < 0 || idx >= candidates.length) {
+        errorJson('INVALID_PICK', `Pick must be 1-${candidates.length}`);
+      }
+      const selected = candidates[idx];
+
+      if (flags.dryRun) {
+        output({
+          command: 'reroll',
+          dryRun: true,
+          current: { salt: currentSalt, buddy: roll(userId, currentSalt).bones },
+          selected: mapped[idx],
+          action: 'patch_salt',
+          install: { type: install.type, path: install.path },
+        });
+        return;
+      }
+
+      // Actually patch
+      const result = patchSalt(install, currentSalt, selected.salt);
+      if (!result.success) errorJson('PATCH_FAILED', result.error);
+      updatePatchedSalt(selected.salt);
+      const soulResult = clearSoul();
+      recordRoll(state, allowance.mode);
+
+      output({
+        command: 'reroll',
+        success: true,
+        selected: mapped[idx],
+        patch: { type: result.type, needsSwap: result.needsSwap || false, swapCommand: result.swapCommand },
+        soulCleared: soulResult.oldName || null,
+      });
+      return;
+    }
+
+    // No pick — just output candidates for agent to choose
+    output({
+      command: 'reroll',
+      current: { salt: currentSalt, buddy: roll(userId, currentSalt).bones },
+      candidates: mapped,
+      quota: allowance,
+      hint: 'Use --pick N to select, add --dry-run to preview',
+    });
+    return;
+  }
 
   console.log(`\n${BOLD}  🔄 BUDDY REROLL${RESET}`);
   console.log(`${DIM}  Install: ${install.type} | SALT: ${currentSalt}${RESET}\n`);
@@ -431,6 +619,17 @@ async function cmdReroll() {
 }
 
 async function cmdRestore() {
+  if (flags.json) {
+    const result = restoreOriginal();
+    if (result.success) {
+      clearSoul();
+      output({ command: 'restore', success: true, type: result.type });
+    } else {
+      output({ command: 'restore', success: false, error: result.error, restoreCommand: result.command });
+    }
+    return;
+  }
+
   const result = restoreOriginal();
   if (result.success) {
     clearSoul();
@@ -444,6 +643,25 @@ async function cmdRestore() {
 }
 
 async function cmdDex() {
+  if (flags.json) {
+    const state = loadState();
+    const limit = await getDailyLimit();
+    const starred = await isStarred();
+    const eventRemaining = getApologyEventRemaining(state);
+    output({
+      command: 'dex',
+      species: SPECIES,
+      eyes: EYES,
+      hats: HATS.filter(h => h !== 'none'),
+      stats: STATS,
+      rarities: RARITIES,
+      rarityWeights: RARITY_WEIGHTS,
+      shinyChance: 0.01,
+      quota: { limit, starred, eventRemaining },
+    });
+    return;
+  }
+
   // Show collection view
   console.log(renderCollection());
 
@@ -459,6 +677,130 @@ async function cmdDex() {
   console.log(`  ${DIM}Apology event: +${APOLOGY_EVENT.bonusRuns} extra ${APOLOGY_EVENT.pullsPerRun}-pulls (${eventRemaining} left)${RESET}\n`);
 }
 
+function cmdSchema(subCmd) {
+  const schemas = {
+    check: {
+      command: 'check',
+      description: 'Show current buddy',
+      args: [],
+      flags: ['--json', '--fields'],
+      response: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', const: 'check' },
+          account: { type: 'string' },
+          install: { type: 'object', nullable: true },
+          salt: { type: 'string' },
+          patched: { type: 'boolean' },
+          buddy: { $ref: '#/definitions/bones' },
+          quota: { $ref: '#/definitions/quota' },
+        },
+      },
+    },
+    gacha: {
+      command: 'gacha',
+      description: 'Roll random buddies',
+      args: [{ name: 'count', type: 'number', default: 10, max: 100 }],
+      flags: ['--json', '--fields', '--limit'],
+      response: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', const: 'gacha' },
+          count: { type: 'number' },
+          results: { type: 'array', items: { $ref: '#/definitions/result' } },
+          best: { $ref: '#/definitions/result' },
+          quota: { $ref: '#/definitions/quota' },
+        },
+      },
+    },
+    reroll: {
+      command: 'reroll',
+      description: 'Roll candidates and optionally patch SALT',
+      args: [],
+      flags: ['--json', '--pick N', '--dry-run', '--fields'],
+      response: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', const: 'reroll' },
+          current: { type: 'object' },
+          candidates: { type: 'array', items: { $ref: '#/definitions/result' } },
+        },
+      },
+    },
+    restore: {
+      command: 'restore',
+      description: 'Restore original buddy',
+      args: [],
+      flags: ['--json'],
+      response: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', const: 'restore' },
+          success: { type: 'boolean' },
+        },
+      },
+    },
+    dex: {
+      command: 'dex',
+      description: 'Game data and collection',
+      args: [],
+      flags: ['--json', '--fields'],
+      response: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', const: 'dex' },
+          species: { type: 'array' },
+          rarities: { type: 'array' },
+        },
+      },
+    },
+  };
+
+  const definitions = {
+    bones: {
+      type: 'object',
+      properties: {
+        rarity: { type: 'string', enum: ['common', 'uncommon', 'rare', 'epic', 'legendary'] },
+        species: { type: 'string' },
+        eye: { type: 'string' },
+        hat: { type: 'string' },
+        shiny: { type: 'boolean' },
+        stats: { type: 'object' },
+      },
+    },
+    result: {
+      type: 'object',
+      properties: {
+        index: { type: 'number' },
+        salt: { type: 'string' },
+        species: { type: 'string' },
+        rarity: { type: 'string' },
+        stars: { type: 'string' },
+        eye: { type: 'string' },
+        hat: { type: 'string' },
+        shiny: { type: 'boolean' },
+        stats: { type: 'object' },
+      },
+    },
+    quota: {
+      type: 'object',
+      properties: {
+        used: { type: 'number' },
+        limit: { type: 'number' },
+        remaining: { type: 'number' },
+        starred: { type: 'boolean' },
+        eventRemaining: { type: 'number' },
+      },
+    },
+  };
+
+  if (subCmd && schemas[subCmd]) {
+    output({ ...schemas[subCmd], definitions });
+  } else {
+    output({ commands: Object.values(schemas), definitions });
+  }
+}
+
 function showHelp() {
   console.log(`
 ${BOLD}claude-buddy-reroll${RESET} — Reroll your Claude Code buddy companion
@@ -469,6 +811,14 @@ ${BOLD}Usage:${RESET}
   buddy-reroll reroll            Interactive reroll with SALT patch
   buddy-reroll restore           Restore original buddy
   buddy-reroll dex               All species and rarities
+  buddy-reroll schema [command]  Show JSON schema for a command
+
+${BOLD}Agent DX flags:${RESET}
+  --json                         JSON output (logs to stderr)
+  --pick N                       Auto-select Nth result (reroll/gacha)
+  --dry-run                      Preview patch without applying (reroll)
+  --fields f1,f2                 Filter output fields
+  --limit N                      Limit gacha count
 
 ${BOLD}Limits:${RESET}
   Daily gacha: ${BASE_LIMIT}x/day (resets at midnight)
@@ -484,14 +834,13 @@ ${DIM}Backup created before any patch. 'restore' to undo.${RESET}
 
 // ─── Main ───────────────────────────────────────────
 
-const [,, cmd, ...args] = process.argv;
-
 switch (cmd) {
   case 'check':   await cmdCheck(); break;
-  case 'gacha':   await cmdGacha(Math.min(Math.max(1, parseInt(args[0]) || 10), 100)); break;
+  case 'gacha':   await cmdGacha(Math.min(Math.max(1, parseInt(args[0]) || flags.limit || 10), 100)); break;
   case 'reroll':  await cmdReroll(); break;
   case 'restore': await cmdRestore(); break;
   case 'dex':     await cmdDex(); break;
+  case 'schema':  cmdSchema(args[0]); break;
   case '--help': case '-h': case 'help': showHelp(); break;
   default: showHelp(); break;
 }
