@@ -4,6 +4,7 @@
 import { execFileSync } from 'child_process';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { resolveBunExecutable } from './bun-runtime.mjs';
 
 const ORIGINAL_SALT = 'friend-2026-401';
 
@@ -40,7 +41,11 @@ function bunHashBatch(keys) {
   }
 
   try {
-    const out = execFileSync('bun', [BUN_HASH_SCRIPT, JSON.stringify(keys)], {
+    const bunExecutable = resolveBunExecutable();
+    if (!bunExecutable) {
+      throw new Error('bun executable not found in PATH or standard install locations');
+    }
+    const out = execFileSync(bunExecutable, [BUN_HASH_SCRIPT, JSON.stringify(keys)], {
       encoding: 'utf-8',
       windowsHide: true,
     }).trim();

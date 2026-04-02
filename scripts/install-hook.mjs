@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, existsSync, copyFileSync, symlinkSync, unl
 import { resolve, dirname } from 'path';
 import { execSync } from 'child_process';
 import { saveInstallContext, maskUserId } from '../src/context.mjs';
+import { resolveBunExecutable } from '../src/bun-runtime.mjs';
 
 const HOME = process.env.USERPROFILE || process.env.HOME || '';
 const SETTINGS = resolve(HOME, '.claude', 'settings.json');
@@ -14,8 +15,10 @@ const HOOK_CMD = `node ${SWAP_DST.replace(/\\/g, '/')}`;
 try {
   // 1. Install Bun if not present (needed for accurate Bun.hash)
   try {
-    execSync('bun --version', { stdio: 'pipe' });
-    console.log('✓ Bun already installed');
+    const bunExecutable = resolveBunExecutable();
+    if (!bunExecutable) throw new Error('bun missing');
+    execSync(`"${bunExecutable}" --version`, { stdio: 'pipe' });
+    console.log(`✓ Bun already installed (${bunExecutable})`);
   } catch {
     console.log('⏳ Installing Bun (for accurate buddy prediction)...');
     try {
@@ -24,7 +27,11 @@ try {
       } else {
         execSync('curl -fsSL https://bun.sh/install | bash', { stdio: 'inherit', timeout: 60000 });
       }
-      console.log('✓ Bun installed');
+      const bunExecutable = resolveBunExecutable();
+      if (!bunExecutable) {
+        throw new Error('Bun installed but executable was not found in standard locations');
+      }
+      console.log(`✓ Bun installed (${bunExecutable})`);
     } catch {
       console.log('✗ Bun install failed — accurate buddy prediction requires Bun.hash');
       console.log('  Manual install: https://bun.sh/docs/installation');
