@@ -71,3 +71,32 @@ test('getPreferredVariant returns highest rarity variant', () => {
   assert.equal(preferred.salt, 'buddy-reroll-ac');
   assert.equal(preferred.bones.rarity, 'epic');
 });
+
+test('ingestCollectionResults keeps different eye and hat combinations as separate forms', () => {
+  const collection = ingestCollectionResults({}, [
+    {
+      salt: 'buddy-reroll-aa',
+      bones: {
+        species: 'ghost',
+        rarity: 'rare',
+        eye: '·',
+        hat: 'none',
+        shiny: false,
+        stats: { DEBUGGING: 10 },
+      },
+    },
+    {
+      salt: 'buddy-reroll-ab',
+      bones: {
+        species: 'ghost',
+        rarity: 'rare',
+        eye: '@',
+        hat: 'tophat',
+        shiny: false,
+        stats: { DEBUGGING: 10 },
+      },
+    },
+  ]);
+
+  assert.equal(collection.ghost.variants.length, 2);
+});

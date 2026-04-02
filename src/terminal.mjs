@@ -24,8 +24,9 @@ export function isAsciiOnlyTerminal() {
   if (process.platform !== 'win32') return false;
 
   const termProgram = String(process.env.TERM_PROGRAM || '').toLowerCase();
-  if (process.env.WT_SESSION) return false;
+  if (process.env.PSModulePath) return true;
   if (termProgram.includes('vscode')) return false;
+  if (process.env.WT_SESSION) return false;
   return true;
 }
 

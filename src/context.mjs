@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import { detectInstall, readCurrentSalt } from './patcher.mjs';
+import { compareVersions, detectInstall, readCurrentSalt, readInstallVersion } from './patcher.mjs';
 import { ORIGINAL_SALT } from './engine.mjs';
 
 const HOME = process.env.USERPROFILE || process.env.HOME || '';
 const CLAUDE_CONFIG_PATH = resolve(HOME, '.claude.json');
 const CLAUDE_DIR = resolve(HOME, '.claude');
 const INSTALL_CONTEXT_PATH = resolve(CLAUDE_DIR, 'buddy-reroll-install.json');
+export const MIN_SUPPORTED_CLAUDE_VERSION = '2.1.89';
 
 function readJson(path) {
   if (!existsSync(path)) return null;
@@ -43,9 +44,11 @@ export function maskUserId(userId) {
 export function resolveClaudeContext() {
   const stored = readJson(INSTALL_CONTEXT_PATH);
   const install = detectInstall();
+  const installVersion = (install ? readInstallVersion(install) : null) ?? stored?.installVersion ?? null;
   const currentSalt = (install ? readCurrentSalt(install) : null) ?? stored?.currentSalt ?? ORIGINAL_SALT;
   const userId = readUserId();
-  return { install, userId, currentSalt };
+  const patchSupported = !installVersion || compareVersions(installVersion, MIN_SUPPORTED_CLAUDE_VERSION) >= 0;
+  return { install, installVersion, patchSupported, userId, currentSalt };
 }
 
 export function saveInstallContext() {
@@ -57,6 +60,7 @@ export function saveInstallContext() {
       {
         detectedAt: new Date().toISOString(),
         install: context.install,
+        installVersion: context.installVersion,
         userId: context.userId,
         currentSalt: context.currentSalt,
       },

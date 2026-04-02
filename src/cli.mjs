@@ -16,15 +16,18 @@ import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIES, RARITIES, RARITY_WEIGHTS, applyTenPullGuarantee, generateGuaranteedEpicRoll, isEpicOrBetter } from './engine.mjs';
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
-import { resolveClaudeContext, updatePatchedSalt } from './context.mjs';
+import { MIN_SUPPORTED_CLAUDE_VERSION, resolveClaudeContext, updatePatchedSalt } from './context.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
-import { addBatchToCollection, renderCollection, getCollection } from './collection.mjs';
+import { addBatchToCollection, renderCollection, getCollection, getPreferredVariant } from './collection.mjs';
 import { select } from './selector.mjs';
 import { playHatchAnimation } from './animation.mjs';
 import { createInterface } from 'readline';
 import { findDexBuddy } from './dex.mjs';
 import { renderHomeScreen, renderCheckScreen, renderQuotaSummary, renderSearchStatus } from './ui.mjs';
 import { shouldGuaranteeEventRun } from './event-state.mjs';
+import { compareVersions } from './patcher.mjs';
+import { renderSprite } from './sprites.mjs';
+import { formatEye, formatStars, toTerminalSafeText } from './terminal.mjs';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -323,7 +326,7 @@ function ask(question) {
 }
 
 function requireClaudeContext(options = {}) {
-  const { needsInstall = false, needsSalt = false } = options;
+  const { needsInstall = false, needsSalt = false, needsPatchSupport = false } = options;
   const context = resolveClaudeContext();
 
   if (!context.userId || context.userId === 'anon') {
@@ -352,7 +355,52 @@ function requireClaudeContext(options = {}) {
     return null;
   }
 
+  if (needsPatchSupport && context.installVersion && compareVersions(context.installVersion, MIN_SUPPORTED_CLAUDE_VERSION) < 0) {
+    if (flags.json) {
+      errorJson('UNSUPPORTED_VERSION', `Claude Code ${context.installVersion} is below the supported patching version ${MIN_SUPPORTED_CLAUDE_VERSION}`);
+    }
+    console.log(`\n${RED}  ✗ Claude Code ${context.installVersion}에서는 버디 변경을 지원하지 않습니다.${RESET}`);
+    console.log(`${DIM}  최소 지원 버전: ${MIN_SUPPORTED_CLAUDE_VERSION}${RESET}\n`);
+    return null;
+  }
+
   return context;
+}
+
+function buildTamagotchiPreview(species, entry, tick = 0) {
+  const variant = entry ? getPreferredVariant(entry) : null;
+  if (!variant) {
+    return [
+      `${MAGENTA}${BOLD}  PIXEL PREVIEW${RESET}`,
+      `  ${DIM}undiscovered buddy${RESET}`,
+      '',
+      '      .------.      ',
+      '     / ??  ?? \\     ',
+      '    |  ????    |    ',
+      '     \\  ????  /     ',
+      '      `------`      ',
+      '',
+      `  ${DIM}Find this species first.${RESET}`,
+    ].join('\n');
+  }
+
+  const stars = formatStars(RARITY_STARS[variant.bones.rarity]);
+  const sprite = toTerminalSafeText(renderSprite(
+    species,
+    formatEye(variant.bones.eye),
+    variant.bones.hat,
+    tick % 2,
+  ));
+
+  return [
+    `${MAGENTA}${BOLD}  PIXEL PREVIEW${RESET}`,
+    `  ${BOLD}${species.toUpperCase()}${RESET} ${stars}`,
+    `  ${DIM}${variant.bones.rarity} • x${entry.count}${variant.bones.shiny ? ' • shiny' : ''}${RESET}`,
+    '  +----------------------+',
+    ...sprite.split('\n').map((line) => `  | ${line.padEnd(20)} |`),
+    '  +----------------------+',
+    `  ${DIM}eye ${formatEye(variant.bones.eye)} • hat ${toTerminalSafeText(variant.bones.hat)}${RESET}`,
+  ].join('\n');
 }
 
 // ─── Commands ───────────────────────────────────────
@@ -486,7 +534,7 @@ async function cmdReroll() {
     return;
   }
 
-  const context = requireClaudeContext({ needsInstall: true, needsSalt: true });
+  const context = requireClaudeContext({ needsInstall: true, needsSalt: true, needsPatchSupport: true });
   if (!context) return;
   const { userId, install, currentSalt } = context;
 
@@ -627,6 +675,9 @@ async function cmdReroll() {
 }
 
 async function cmdRestore() {
+  const context = requireClaudeContext({ needsInstall: true, needsPatchSupport: true });
+  if (!context) return;
+
   if (flags.json) {
     const result = restoreOriginal();
     if (result.success) {
@@ -658,7 +709,7 @@ async function cmdDex() {
         errorJson('INVALID_PICK', `Pick must be 1-${SPECIES.length}`);
       }
       const targetSpecies = SPECIES[idx];
-      const context = requireClaudeContext({ needsInstall: true, needsSalt: true });
+      const context = requireClaudeContext({ needsInstall: true, needsSalt: true, needsPatchSupport: true });
       if (!context) return;
       const collection = getCollection();
       const search = findDexBuddy({
@@ -757,6 +808,10 @@ async function cmdDex() {
     title: 'Speaki Dex Targets',
     items: selectorItems,
     columns: 3,
+    fullscreen: true,
+    previewHeight: 10,
+    animationIntervalMs: 450,
+    preview: (item, meta) => buildTamagotchiPreview(item.value, col[item.value], meta.tick),
   });
 
   if (!choice) return;
@@ -767,7 +822,7 @@ async function cmdDex() {
   const confirmRoll = await ask(`  Roll until you get ${targetSpecies}? [y/N]: `);
   if (confirmRoll.toLowerCase() !== 'y') return;
 
-  const context = requireClaudeContext({ needsInstall: true, needsSalt: true });
+  const context = requireClaudeContext({ needsInstall: true, needsSalt: true, needsPatchSupport: true });
   if (!context) return;
 
   const search = findDexBuddy({
@@ -1013,6 +1068,74 @@ async function cmdSetup() {
   }
 }
 
+async function promptReturnToHome() {
+  const answer = await ask(`  ${DIM}Press Enter to go back to home, or type q to quit: ${RESET}`);
+  return answer.toLowerCase() !== 'q';
+}
+
+async function cmdHome() {
+  if (!process.stdin.isTTY || flags.json) {
+    showHelp();
+    return;
+  }
+
+  while (true) {
+    console.log(renderHomeScreen());
+    const choice = await select({
+      title: 'Speaki Quick Actions',
+      columns: 2,
+      fullscreen: true,
+      items: [
+        { label: `${GREEN}Check${RESET}`, description: '현재 버디 / 설치 상태 보기', value: 'check' },
+        { label: `${GREEN}Gacha 10x${RESET}`, description: '기본 10연차 바로 실행', value: 'gacha' },
+        { label: `${GREEN}Reroll${RESET}`, description: '후보 뽑고 바로 적용', value: 'reroll' },
+        { label: `${GREEN}Dex${RESET}`, description: '도감 탐색하고 바로 적용', value: 'dex' },
+        { label: `${GREEN}Restore${RESET}`, description: '원래 버디로 복원', value: 'restore' },
+        { label: `${GREEN}Setup${RESET}`, description: 'Bun / 런타임 셋업 복구', value: 'setup' },
+        { label: `${GREEN}Update${RESET}`, description: '업데이트 후 셋업까지 실행', value: 'update' },
+        { label: `${RED}Quit${RESET}`, description: '홈 종료', value: 'quit' },
+      ],
+    });
+
+    if (!choice || choice.value === 'quit') {
+      console.log(`${DIM}  Bye.${RESET}\n`);
+      return;
+    }
+
+    switch (choice.value) {
+      case 'check':
+        await cmdCheck();
+        break;
+      case 'gacha':
+        await cmdGacha(DEFAULT_PULLS);
+        break;
+      case 'reroll':
+        await cmdReroll();
+        break;
+      case 'dex':
+        await cmdDex();
+        break;
+      case 'restore':
+        await cmdRestore();
+        break;
+      case 'setup':
+        await cmdSetup();
+        break;
+      case 'update':
+        await cmdUpdate();
+        break;
+      default:
+        return;
+    }
+
+    const shouldContinue = await promptReturnToHome();
+    if (!shouldContinue) {
+      console.log(`${DIM}  Bye.${RESET}\n`);
+      return;
+    }
+  }
+}
+
 function showHelp() {
   console.log(renderHomeScreen());
   console.log(`${BOLD}Flags${RESET}`);
@@ -1041,5 +1164,5 @@ switch (cmd) {
   case 'schema':  cmdSchema(args[0]); break;
   case 'update':  await cmdUpdate(); break;
   case '--help': case '-h': case 'help': showHelp(); break;
-  default: showHelp(); break;
+  default: await cmdHome(); break;
 }

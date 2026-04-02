@@ -1,7 +1,7 @@
 // Claude Code Buddy — ASCII sprite definitions
 // Each sprite is 5 lines tall, ~12 chars wide
 // {E} is replaced with the chosen eye character
-// Line 0 is the hat slot (replaced at render time)
+// Hats are rendered as a separate line above the sprite body.
 
 export const SPRITES = {
   duck: {
@@ -127,13 +127,13 @@ export const HAT_SPRITES = {
 };
 
 /**
- * Compose a full 5-line sprite string.
+ * Compose a full sprite string with an optional hat line above the body.
  *
  * @param {string} species - species key from SPRITES
  * @param {string} eye     - eye character to inject at {E}
  * @param {string} hat     - hat key from HAT_SPRITES
  * @param {number} frame   - 0 or 1 (animation frame index)
- * @returns {string}       - 5-line composed sprite
+ * @returns {string}       - composed sprite
  */
 export function renderSprite(species, eye, hat, frame = 0) {
   const spriteFrames = SPRITES[species]?.frames;
@@ -142,15 +142,9 @@ export function renderSprite(species, eye, hat, frame = 0) {
   const frameIndex = frame % spriteFrames.length;
   const raw = spriteFrames[frameIndex];
 
-  // Split into lines (the frames are stored as \n-joined strings)
   const lines = raw.split('\n');
-
-  // Replace hat line (line 0) with the chosen hat sprite
   const hatLine = HAT_SPRITES[hat] ?? HAT_SPRITES.none;
-  lines[0] = hatLine;
-
-  // Inject eye character — replace the first {E} occurrence
-  const composed = lines.join('\n').replace('{E}', eye);
-
-  return composed;
+  const body = lines.join('\n').replace('{E}', eye);
+  if (hat === 'none') return body;
+  return `${hatLine}\n${body}`;
 }

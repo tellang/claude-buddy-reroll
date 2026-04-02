@@ -5,6 +5,7 @@ import { resolve, dirname } from 'path';
 import { execSync } from 'child_process';
 import { saveInstallContext, maskUserId } from '../src/context.mjs';
 import { resolveBunExecutable } from '../src/bun-runtime.mjs';
+import { resolvePwshExecutable } from '../src/shell-runtime.mjs';
 
 const HOME = process.env.USERPROFILE || process.env.HOME || '';
 const SETTINGS = resolve(HOME, '.claude', 'settings.json');
@@ -23,7 +24,8 @@ try {
     console.log('⏳ Installing Bun (for accurate buddy prediction)...');
     try {
       if (process.platform === 'win32') {
-        execSync('powershell -c "irm bun.sh/install.ps1 | iex"', { stdio: 'inherit', timeout: 60000 });
+        const pwsh = resolvePwshExecutable();
+        execSync(`"${pwsh}" -NoLogo -NoProfile -Command "irm bun.sh/install.ps1 | iex"`, { stdio: 'inherit', timeout: 60000 });
       } else {
         execSync('curl -fsSL https://bun.sh/install | bash', { stdio: 'inherit', timeout: 60000 });
       }

@@ -30,14 +30,14 @@ function statBar(value, max = 100) {
   return '█'.repeat(filled) + '░'.repeat(width - filled) + ` ${value}`;
 }
 
-export function renderCard(result, { showSalt = false, index = null } = {}) {
+export function renderCard(result, { showSalt = false, index = null, frame = 0 } = {}) {
   const { bones, inspirationSeed } = result;
   const { rarity, species, eye, hat, shiny, stats } = bones;
   const style = RARITY_STYLE[rarity];
   const borderChar = isAsciiOnlyTerminal() ? ASCII_BORDER[rarity] : style.border;
   const stars = formatStars(RARITY_STARS[rarity]);
   const shinyTag = shiny ? formatShinyTag(' ✨ SHINY!') : '';
-  const sprite = toTerminalSafeText(renderSprite(species, formatEye(eye), hat));
+  const sprite = toTerminalSafeText(renderSprite(species, formatEye(eye), hat, frame));
 
   const header = index !== null ? `#${index + 1} ` : '';
   const saltLine = showSalt && result.salt ? `${DIM}salt: ${result.salt}${RESET}` : '';

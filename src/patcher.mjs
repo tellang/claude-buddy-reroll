@@ -1,8 +1,9 @@
 // SALT patcher for Claude Code — supports both native binary and npm installs
 import { existsSync, readFileSync, writeFileSync, copyFileSync, renameSync } from 'fs';
-import { resolve } from 'path';
+import { dirname, resolve } from 'path';
 import { execSync } from 'child_process';
 import { ORIGINAL_SALT } from './engine.mjs';
+import { resolvePwshExecutable } from './shell-runtime.mjs';
 
 const HOME = process.env.USERPROFILE || process.env.HOME || '';
 
@@ -14,6 +15,44 @@ export function detectInstall() {
   if (native) return { type: 'native', path: native };
   if (npm) return { type: 'npm', path: npm };
   return null;
+}
+
+export function readInstallVersion(install) {
+  if (!install) return null;
+
+  try {
+    if (install.type === 'npm') {
+      const packageJsonPath = resolve(dirname(install.path), 'package.json');
+      if (!existsSync(packageJsonPath)) return null;
+      const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+      return pkg.version || null;
+    }
+
+    const out = execSync(`"${install.path}" --version`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      timeout: 5000,
+      windowsHide: true,
+    }).trim();
+    const match = out.match(/\d+\.\d+\.\d+/);
+    return match ? match[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+export function compareVersions(a, b) {
+  const left = String(a || '').split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const right = String(b || '').split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const max = Math.max(left.length, right.length);
+
+  for (let i = 0; i < max; i++) {
+    const l = left[i] || 0;
+    const r = right[i] || 0;
+    if (l > r) return 1;
+    if (l < r) return -1;
+  }
+  return 0;
 }
 
 function findNativeBinary() {
@@ -100,6 +139,10 @@ export function patchSalt(install, currentSalt, newSalt) {
   }
 }
 
+function quotePwsh(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
 function patchNpm(filePath, currentSalt, newSalt, backupPath) {
   // npm: text-based replacement in cli.js
   const content = readFileSync(filePath, 'utf-8');
@@ -157,7 +200,7 @@ function patchNative(filePath, currentSalt, newSalt, backupPath) {
       count,
       needsSwap: true,
       swapCommand: process.platform === 'win32'
-        ? `move "${filePath}" "${filePath}.old" & copy "${patchedPath}" "${filePath}"`
+        ? `"${resolvePwshExecutable()}" -NoLogo -NoProfile -Command "Move-Item -LiteralPath ${quotePwsh(filePath)} -Destination ${quotePwsh(`${filePath}.old`)} -Force; Copy-Item -LiteralPath ${quotePwsh(patchedPath)} -Destination ${quotePwsh(filePath)} -Force"`
         : `mv "${patchedPath}" "${filePath}"`,
     };
   }
@@ -203,7 +246,9 @@ export function restoreOriginal() {
         success: false,
         type: 'native',
         error: 'Binary locked (Claude running). Close Claude Code first, then run:',
-        command: `cp "${backupPath}" "${restorePath}"`,
+        command: process.platform === 'win32'
+          ? `"${resolvePwshExecutable()}" -NoLogo -NoProfile -Command "Copy-Item -LiteralPath ${quotePwsh(backupPath)} -Destination ${quotePwsh(restorePath)} -Force"`
+          : `cp "${backupPath}" "${restorePath}"`,
       };
     }
   }

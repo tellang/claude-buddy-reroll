@@ -2,7 +2,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import { SPECIES, RARITIES, RARITY_STARS } from './engine.mjs';
+import { EYES, HATS, SPECIES, RARITIES, RARITY_STARS } from './engine.mjs';
 import { padAnsiEnd } from './ansi.mjs';
 
 const HOME = process.env.USERPROFILE || process.env.HOME || '';
@@ -25,6 +25,7 @@ const RARITY_COLOR = {
 };
 
 const RARITY_ORDER = { common: 0, uncommon: 1, rare: 2, epic: 3, legendary: 4 };
+const FORMS_PER_SPECIES = (EYES.length * 2) + ((RARITIES.length - 1) * EYES.length * HATS.length * 2);
 
 function cloneBones(bones) {
   return {
@@ -47,7 +48,12 @@ function normalizeVariant(variant) {
 }
 
 function variantKey(variant) {
-  return `${variant.bones.rarity}:${variant.bones.shiny ? 'shiny' : 'normal'}`;
+  return [
+    variant.bones.rarity,
+    variant.bones.eye,
+    variant.bones.hat,
+    variant.bones.shiny ? 'shiny' : 'normal',
+  ].join(':');
 }
 
 function compareVariants(a, b) {
@@ -177,7 +183,9 @@ export function getCollectionStats() {
   const pct = Math.round((collected / total) * 100);
   const totalPulls = Object.values(col).reduce((a, e) => a + e.count, 0);
   const shinies = Object.values(col).filter(e => e.shiny).length;
-  return { collected, total, pct, totalPulls, shinies };
+  const forms = Object.values(col).reduce((sum, entry) => sum + entry.variants.length, 0);
+  const totalForms = total * FORMS_PER_SPECIES;
+  return { collected, total, pct, totalPulls, shinies, forms, totalForms };
 }
 
 // ─── Collection display ─────────────────────────────
@@ -190,7 +198,7 @@ export function renderCollection() {
 
   const lines = [
     '',
-    `${BOLD}  📖 BUDDY DEX${RESET}  ${DIM}${stats.collected}/${stats.total} (${stats.pct}%)${RESET}`,
+    `${BOLD}  📖 BUDDY DEX${RESET}  ${DIM}Species ${stats.collected}/${stats.total} (${stats.pct}%)${RESET}`,
     `  ${'─'.repeat(40)}`,
     '',
   ];
@@ -209,7 +217,7 @@ export function renderCollection() {
 
   lines.push('');
   lines.push(`  ${DIM}Pick a species number to roll for it!${RESET}`);
-  lines.push(`  ${DIM}Total pulls: ${stats.totalPulls} | Shinies: ${stats.shinies}${RESET}`);
+  lines.push(`  ${DIM}Forms found: ${stats.forms}/${stats.totalForms} | Total pulls: ${stats.totalPulls} | Shinies: ${stats.shinies}${RESET}`);
   lines.push(`\n${BOLD}  Rarities${RESET}`);
 
   for (const rarity of RARITIES) {

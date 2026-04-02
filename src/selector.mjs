@@ -1,6 +1,10 @@
 // Terminal UI selector — zero dependencies, arrow key navigation
 import { emitKeypressEvents } from 'readline';
-import { padAnsiEnd } from './ansi.mjs';
+import { padAnsiEnd, stripAnsi } from './ansi.mjs';
+
+export function getSelectorRenderLineCount(bodyRows) {
+  return bodyRows + 4;
+}
 
 /**
  * Show an interactive list selector with arrow key navigation.
@@ -9,9 +13,13 @@ import { padAnsiEnd } from './ansi.mjs';
  * @param {Array<{label: string, description?: string, value: any}>} options.items
  * @param {number} [options.columns=2] - Number of columns
  * @param {number} [options.selected=0] - Initial selection index
+ * @param {(item: any, meta: { cursor: number, tick: number }) => string} [options.preview] - Optional preview panel renderer
+ * @param {number} [options.previewHeight=0] - Reserved preview panel height
+ * @param {boolean} [options.fullscreen=false] - Render as fullscreen screen instead of in-place widget
+ * @param {number} [options.animationIntervalMs=0] - Optional preview animation interval
  * @returns {Promise<{index: number, value: any} | null>} Selected item or null if cancelled
  */
-export async function select({ title, items, columns = 2, selected = 0 }) {
+export async function select({ title, items, columns = 2, selected = 0, preview = null, previewHeight = 0, fullscreen = false, animationIntervalMs = 0 }) {
   if (!process.stdin.isTTY) return null;
 
   const RESET = '\x1b[0m';
@@ -21,41 +29,57 @@ export async function select({ title, items, columns = 2, selected = 0 }) {
   const BG_CYAN = '\x1b[46m\x1b[30m';
   const HIDE_CURSOR = '\x1b[?25l';
   const SHOW_CURSOR = '\x1b[?25h';
+  const CLEAR = '\x1b[2J\x1b[H';
 
   let cursor = selected;
+  let tick = 0;
   const rows = Math.ceil(items.length / columns);
   const colWidth = 22;
 
   function render() {
-    // Move cursor up to overwrite previous render (except first time)
-    const totalLines = rows + 3; // title + blank + rows + footer
-    process.stdout.write(`\x1b[${totalLines}A`);
+    const previewText = typeof preview === 'function' ? preview(items[cursor], { cursor, tick }) : '';
+    const previewLines = previewText ? String(previewText).split('\n') : [];
+    const bodyRows = Math.max(rows, previewHeight || previewLines.length);
+
+    if (fullscreen) {
+      process.stdout.write(CLEAR);
+    } else {
+      const totalLines = getSelectorRenderLineCount(bodyRows);
+      process.stdout.write(`\x1b[${totalLines}A`);
+    }
 
     // Title
     process.stdout.write(`\x1b[2K  ${BOLD}${title}${RESET}\n`);
     process.stdout.write(`\x1b[2K\n`);
 
-    // Grid
-    for (let row = 0; row < rows; row++) {
-      let line = '  ';
-      for (let col = 0; col < columns; col++) {
-        const idx = row * columns + col;
-        if (idx >= items.length) {
-          line += ' '.repeat(colWidth);
-          continue;
-        }
-        const item = items[idx];
-        const num = String(idx + 1).padStart(2);
-        const text = `${num}. ${item.label}`;
-        const padded = padAnsiEnd(text, colWidth - 1);
+    for (let row = 0; row < bodyRows; row++) {
+      let gridLine = '  ';
 
-        if (idx === cursor) {
-          line += `${BG_CYAN} ${padded}${RESET}`;
-        } else {
-          line += ` ${padded}`;
+      if (row < rows) {
+        for (let col = 0; col < columns; col++) {
+          const idx = row * columns + col;
+          if (idx >= items.length) {
+            gridLine += ' '.repeat(colWidth);
+            continue;
+          }
+          const item = items[idx];
+          const num = String(idx + 1).padStart(2);
+          const text = `${num}. ${item.label}`;
+          const padded = padAnsiEnd(text, colWidth - 1);
+
+          if (idx === cursor) {
+            const inverted = stripAnsi(text).padEnd(colWidth - 1);
+            gridLine += `${BG_CYAN} ${inverted}${RESET}`;
+          } else {
+            gridLine += ` ${padded}`;
+          }
         }
+      } else {
+        gridLine += ' '.repeat(columns * colWidth);
       }
-      process.stdout.write(`\x1b[2K${line}\n`);
+
+      const previewLine = previewLines[row] ? `    ${previewLines[row]}` : '';
+      process.stdout.write(`\x1b[2K${gridLine}${previewLine}\n`);
     }
 
     // Footer
@@ -67,11 +91,23 @@ export async function select({ title, items, columns = 2, selected = 0 }) {
   return new Promise((resolve) => {
     process.stdout.write(HIDE_CURSOR);
 
-    // Print initial blank lines so render() can overwrite
-    const totalLines = rows + 3;
-    for (let i = 0; i < totalLines; i++) process.stdout.write('\n');
+    let animationTimer = null;
+
+    if (!fullscreen) {
+      const initialPreviewText = typeof preview === 'function' ? preview(items[cursor], { cursor, tick }) : '';
+      const initialPreviewLines = initialPreviewText ? String(initialPreviewText).split('\n') : [];
+      const totalLines = getSelectorRenderLineCount(Math.max(rows, previewHeight || initialPreviewLines.length));
+      for (let i = 0; i < totalLines; i++) process.stdout.write('\n');
+    }
 
     render();
+
+    if (animationIntervalMs > 0) {
+      animationTimer = setInterval(() => {
+        tick++;
+        render();
+      }, animationIntervalMs);
+    }
 
     emitKeypressEvents(process.stdin);
     if (process.stdin.setRawMode) process.stdin.setRawMode(true);
@@ -81,6 +117,8 @@ export async function select({ title, items, columns = 2, selected = 0 }) {
       if (process.stdin.setRawMode) process.stdin.setRawMode(false);
       process.stdin.pause();
       process.stdin.removeListener('keypress', onKey);
+      if (animationTimer) clearInterval(animationTimer);
+      if (fullscreen) process.stdout.write(CLEAR);
       process.stdout.write(SHOW_CURSOR);
     }
 
@@ -89,15 +127,19 @@ export async function select({ title, items, columns = 2, selected = 0 }) {
 
       if (key.name === 'up') {
         cursor = (cursor - columns + items.length) % items.length;
+        tick++;
         render();
       } else if (key.name === 'down') {
         cursor = (cursor + columns) % items.length;
+        tick++;
         render();
       } else if (key.name === 'left') {
         cursor = (cursor - 1 + items.length) % items.length;
+        tick++;
         render();
       } else if (key.name === 'right') {
         cursor = (cursor + 1) % items.length;
+        tick++;
         render();
       } else if (key.name === 'return') {
         cleanup();

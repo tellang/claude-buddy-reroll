@@ -144,8 +144,13 @@ function renderFrame(frameLines, offset, color) {
 }
 
 function clearLines(n, out) {
-  // Move cursor up n lines then to start of line
-  out.write(`\x1b[${n}A\r`);
+  out.write(`\x1b[${n}A`);
+  for (let i = 0; i < n; i++) {
+    out.write('\x1b[2K');
+    if (i < n - 1) out.write('\x1b[1B');
+  }
+  if (n > 1) out.write(`\x1b[${n - 1}A`);
+  out.write('\r');
 }
 
 export async function playHatchAnimation(bones) {
