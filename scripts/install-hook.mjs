@@ -19,10 +19,15 @@ try {
   } catch {
     console.log('⏳ Installing Bun (for accurate buddy prediction)...');
     try {
-      execSync('powershell -c "irm bun.sh/install.ps1 | iex"', { stdio: 'inherit', timeout: 60000 });
+      if (process.platform === 'win32') {
+        execSync('powershell -c "irm bun.sh/install.ps1 | iex"', { stdio: 'inherit', timeout: 60000 });
+      } else {
+        execSync('curl -fsSL https://bun.sh/install | bash', { stdio: 'inherit', timeout: 60000 });
+      }
       console.log('✓ Bun installed');
     } catch {
       console.log('✗ Bun install failed — accurate buddy prediction requires Bun.hash');
+      console.log('  Manual install: https://bun.sh/docs/installation');
       process.exit(1);
     }
   }
