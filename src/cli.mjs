@@ -942,6 +942,7 @@ async function cmdDex() {
 
   // Show collection view
   console.log(renderCollection(previewContext.userId));
+  console.log(`${DIM}  Current profile: ${formatProfileBadge(previewContext.userId)} | Known profiles: ${listKnownProfiles().length}${RESET}`);
 
   // Also show game info
   console.log(`${BOLD}  Eyes:${RESET} ${EYES.join('  ')}`);
@@ -1139,6 +1140,19 @@ function cmdSchema(subCmd) {
         },
       },
     },
+    doctor: {
+      command: 'doctor',
+      description: 'Inspect current profile or compare dex preview vs apply result',
+      args: [{ name: 'scope', type: 'string', optional: true }, { name: 'pick', type: 'number', optional: true }],
+      flags: ['--json'],
+      response: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', const: 'doctor' },
+          scope: { type: 'string' },
+        },
+      },
+    },
   };
 
   const definitions = {
@@ -1256,6 +1270,87 @@ async function cmdSetup() {
   }
 }
 
+async function cmdDoctor(subCmd, subArg) {
+  const context = requireClaudeContext();
+  if (!context) return;
+  const { userId, install, currentSalt, installVersion } = context;
+  const profile = loadState(userId);
+
+  if (subCmd === 'dex') {
+    const idx = Math.max(1, parseInt(subArg || '0', 10)) - 1;
+    if (idx < 0 || idx >= SPECIES.length) {
+      if (flags.json) errorJson('INVALID_PICK', `Pick must be 1-${SPECIES.length}`);
+      console.log(`\n${RED}  ✗ Pick must be 1-${SPECIES.length}${RESET}\n`);
+      return;
+    }
+
+    const targetSpecies = SPECIES[idx];
+    const collection = getCollection(userId);
+    const entry = collection[targetSpecies] || null;
+    const preferred = entry ? getPreferredVariant(entry, userId) : null;
+    const search = entry ? findDexBuddy({ userId, targetSpecies, entry }) : null;
+
+    const payload = {
+      command: 'doctor',
+      scope: 'dex',
+      account: userId,
+      install: install ? { type: install.type, path: install.path, version: installVersion } : null,
+      current: { salt: currentSalt, buddy: roll(userId, currentSalt).bones },
+      target: targetSpecies,
+      profile: { knownProfiles: listKnownProfiles(), currentProfile: userId },
+      stored: preferred ? mapResult(preferred) : null,
+      apply: search?.found ? mapResult(search.found) : null,
+      criteria: search?.criteria || null,
+    };
+
+    if (flags.json) {
+      output(payload);
+      return;
+    }
+
+    console.log(`\n${BOLD}  DEX DOCTOR${RESET}`);
+    console.log(`${DIM}  profile: ${formatProfileBadge(userId)} | install: ${installVersion || 'unknown'}${RESET}`);
+    console.log(`${DIM}  target: ${targetSpecies}${RESET}\n`);
+    console.log(`${BOLD}  Current buddy${RESET}`);
+    console.log(renderCard({ salt: currentSalt, ...roll(userId, currentSalt) }, { showSalt: true }));
+    console.log(`${BOLD}  Stored preview${RESET}`);
+    if (preferred) console.log(renderCard(preferred, { showSalt: true }));
+    else console.log(`${DIM}  No stored form for this species in the current profile.${RESET}\n`);
+    console.log(`${BOLD}  Apply candidate${RESET}`);
+    if (search?.found) console.log(renderCard(search.found, { showSalt: true }));
+    else console.log(`${DIM}  No apply candidate found.${RESET}\n`);
+    return;
+  }
+
+  const payload = {
+    command: 'doctor',
+    scope: 'profile',
+    account: userId,
+    install: install ? { type: install.type, path: install.path, version: installVersion } : null,
+    profile: {
+      currentProfile: userId,
+      knownProfiles: listKnownProfiles(),
+      bestRarity: profile.bestRarity,
+      rollsToday: getRollsToday(profile),
+      eventRemaining: getApologyEventRemaining(profile),
+      collectedSpecies: Object.keys(profile.collection || {}).length,
+    },
+  };
+
+  if (flags.json) {
+    output(payload);
+    return;
+  }
+
+  console.log(`\n${BOLD}  PROFILE DOCTOR${RESET}`);
+  console.log(`${DIM}  profile: ${formatProfileBadge(userId)}${RESET}`);
+  console.log(`${DIM}  known profiles: ${listKnownProfiles().join(', ') || '(none)'}${RESET}`);
+  console.log(`${DIM}  install: ${installVersion || 'unknown'}${RESET}`);
+  console.log(`${DIM}  best rarity: ${profile.bestRarity}${RESET}`);
+  console.log(`${DIM}  rolls today: ${getRollsToday(profile)} | event remaining: ${getApologyEventRemaining(profile)}${RESET}`);
+  console.log(`${DIM}  collected species: ${Object.keys(profile.collection || {}).length}${RESET}\n`);
+}
+
 async function promptReturnToHome() {
   const answer = await ask(`  ${DIM}Press Enter to go back to home, or type q to quit: ${RESET}`);
   return answer.toLowerCase() !== 'q';
@@ -1269,6 +1364,8 @@ async function cmdHome() {
 
   while (true) {
     console.log(renderHomeScreen());
+    const currentContext = resolveClaudeContext();
+    console.log(`${DIM}Current profile: ${formatProfileBadge(currentContext.userId)} | Known profiles: ${listKnownProfiles().length}${RESET}\n`);
     const choice = await select({
       title: 'Speaki Quick Actions',
       columns: 2,
@@ -1336,6 +1433,7 @@ function showHelp() {
   console.log(`${BOLD}Setup${RESET}`);
   console.log(`  ${GREEN}bdy setup${RESET}    install Bun/runtime hook support if missing`);
   console.log(`  ${GREEN}bdy update${RESET}   update package and rerun runtime setup`);
+  console.log(`  ${GREEN}bdy doctor${RESET}   inspect current profile or dex apply candidate`);
   console.log();
   console.log(`${DIM}Daily quota: ${BASE_LIMIT} (+1 with GitHub star) | Event bonus: ${APOLOGY_EVENT.pullsPerRun}-pull x${APOLOGY_EVENT.bonusRuns}${RESET}\n`);
 }
@@ -1349,6 +1447,7 @@ switch (cmd) {
   case 'restore': await cmdRestore(); break;
   case 'dex':     await cmdDex(); break;
   case 'setup':   await cmdSetup(); break;
+  case 'doctor':  await cmdDoctor(args[0], args[1]); break;
   case 'schema':  cmdSchema(args[0]); break;
   case 'update':  await cmdUpdate(); break;
   case '--help': case '-h': case 'help': showHelp(); break;

@@ -79,12 +79,13 @@ export function renderMiniCard(result, index) {
   const { rarity, species, eye, shiny } = bones;
   const style = RARITY_STYLE[rarity];
   const stars = formatStars(RARITY_STARS[rarity]);
+  const badge = style.badge.padEnd(9);
   const shinyTag = shiny
     ? (isAsciiOnlyTerminal() ? '[SHINY]' : formatShinyTag('✨'))
     : '';
 
   const idx = String(index + 1).padStart(2, ' ');
-  return `${style.color}${idx}. ${formatEye(eye)} ${species.padEnd(10)} ${stars.padEnd(5)} ${shinyTag.padEnd(8)}${RESET}`;
+  return `${style.color}${idx}. ${formatEye(eye)} ${species.padEnd(10)} ${stars.padEnd(5)} ${badge} ${shinyTag.padEnd(8)}${RESET}`;
 }
 
 // Dex rendering is handled directly in cli.mjs

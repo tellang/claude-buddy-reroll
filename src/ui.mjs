@@ -9,6 +9,15 @@ const MAGENTA = '\x1b[35m';
 const YELLOW = '\x1b[33m';
 const RED = '\x1b[31m';
 const WHITE = '\x1b[37m';
+const GRAY = '\x1b[90m';
+
+const RARITY_TONE = {
+  common: WHITE,
+  uncommon: GREEN,
+  rare: CYAN,
+  epic: MAGENTA,
+  legendary: '\x1b[33;1m',
+};
 
 export function renderBanner(title = 'SPEAKI BUDDY LAB', subtitle = 'npm-only buddy reroll terminal') {
   const border = '═'.repeat(54);
@@ -24,11 +33,14 @@ export function renderBanner(title = 'SPEAKI BUDDY LAB', subtitle = 'npm-only bu
 }
 
 export function renderPanel(title, lines = [], tone = CYAN) {
-  const content = lines.map((line) => `  ${line}`);
+  const width = Math.max(title.length + 6, ...lines.map((line) => String(line).length), 28);
+  const content = lines.map((line) => `  ${tone}│${RESET} ${String(line).padEnd(width - 4)} ${tone}│${RESET}`);
   return [
-    `${tone}${BOLD}${title}${RESET}`,
-    `${tone}${'─'.repeat(Math.max(18, title.length + 6))}${RESET}`,
+    `${tone}┌${'─'.repeat(width - 2)}┐${RESET}`,
+    `${tone}│${RESET} ${tone}${BOLD}${title}${RESET}${' '.repeat(Math.max(0, width - title.length - 4))}${tone}│${RESET}`,
+    `${tone}├${'─'.repeat(width - 2)}┤${RESET}`,
     ...content,
+    `${tone}└${'─'.repeat(width - 2)}┘${RESET}`,
     '',
   ].join('\n');
 }
@@ -45,7 +57,8 @@ export function renderQuotaSummary({ used = 0, limit = 0, starred = false, event
 export function renderRarityOverview() {
   return RARITIES.map((rarity) => {
     const pct = `${RARITY_WEIGHTS[rarity]}%`.padStart(3);
-    return `${WHITE}${RARITY_STARS[rarity].padEnd(6)}${RESET} ${rarity.padEnd(10)} ${DIM}${pct}${RESET}`;
+    const color = RARITY_TONE[rarity] || WHITE;
+    return `${color}${RARITY_STARS[rarity].padEnd(6)}${RESET} ${color}${rarity.padEnd(10)}${RESET} ${GRAY}${pct}${RESET}`;
   });
 }
 
