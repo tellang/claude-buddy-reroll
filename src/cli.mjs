@@ -16,7 +16,8 @@ import { roll, multiRoll, randomSalt, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_S
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { resolveClaudeContext, updatePatchedSalt } from './context.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
-import { addBatchToCollection, renderCollection } from './collection.mjs';
+import { addBatchToCollection, renderCollection, getCollection } from './collection.mjs';
+import { select } from './selector.mjs';
 import { playHatchAnimation } from './animation.mjs';
 import { createInterface } from 'readline';
 
@@ -733,17 +734,34 @@ async function cmdDex() {
   console.log(`  ${DIM}Daily gacha limit: ${limit}${starred ? ' (⭐ star bonus!)' : ' (+1 with GitHub star)'}${RESET}`);
   console.log(`  ${DIM}Apology event: +${APOLOGY_EVENT.bonusRuns} extra ${APOLOGY_EVENT.pullsPerRun}-pulls (${eventRemaining} left)${RESET}\n`);
 
-  // Interactive pick
-  const pickAnswer = await ask(`\n  Pick a species? (1-${SPECIES.length}) or 'q': `);
-  if (!pickAnswer || pickAnswer === 'q') return;
+  // Interactive pick with arrow keys
+  const RARITY_COLOR_MAP = {
+    common: '\x1b[37m', uncommon: '\x1b[32m', rare: '\x1b[36m',
+    epic: '\x1b[35m', legendary: '\x1b[33;1m',
+  };
 
-  const speciesIdx = parseInt(pickAnswer) - 1;
-  if (speciesIdx < 0 || speciesIdx >= SPECIES.length || isNaN(speciesIdx)) {
-    console.log(`${RED}  Invalid${RESET}`);
-    return;
-  }
+  const col = getCollection();
+  const selectorItems = SPECIES.map((sp) => {
+    const entry = col[sp];
+    const discovered = !!entry;
+    const rColor = discovered ? (RARITY_COLOR_MAP[entry.bestRarity] || '') : '';
+    const stars = discovered ? ` ${RARITY_STARS[entry.bestRarity]}` : '';
+    return {
+      label: discovered ? `${rColor}${sp}${stars}${RESET}` : `${DIM}???${RESET}`,
+      description: discovered ? `x${entry.count}` : 'undiscovered',
+      value: sp,
+    };
+  });
 
-  const targetSpecies = SPECIES[speciesIdx];
+  const choice = await select({
+    title: '🎯 Pick a buddy species!',
+    items: selectorItems,
+    columns: 3,
+  });
+
+  if (!choice) return;
+
+  const targetSpecies = choice.value;
   console.log(`\n${BOLD}  Target: ${targetSpecies.toUpperCase()}${RESET}`);
 
   const confirmRoll = await ask(`  Roll until you get ${targetSpecies}? [y/N]: `);
