@@ -1,5 +1,6 @@
 // Terminal UI selector — zero dependencies, arrow key navigation
 import { emitKeypressEvents } from 'readline';
+import { padAnsiEnd } from './ansi.mjs';
 
 /**
  * Show an interactive list selector with arrow key navigation.
@@ -46,7 +47,7 @@ export async function select({ title, items, columns = 2, selected = 0 }) {
         const item = items[idx];
         const num = String(idx + 1).padStart(2);
         const text = `${num}. ${item.label}`;
-        const padded = text.padEnd(colWidth - 1);
+        const padded = padAnsiEnd(text, colWidth - 1);
 
         if (idx === cursor) {
           line += `${BG_CYAN} ${padded}${RESET}`;

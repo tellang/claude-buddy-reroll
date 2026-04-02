@@ -12,7 +12,7 @@ if (process.platform === 'win32') {
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import { roll, multiRoll, randomSalt, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIES, RARITIES, RARITY_WEIGHTS } from './engine.mjs';
+import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIES, RARITIES, RARITY_WEIGHTS } from './engine.mjs';
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { resolveClaudeContext, updatePatchedSalt } from './context.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
@@ -20,6 +20,8 @@ import { addBatchToCollection, renderCollection, getCollection } from './collect
 import { select } from './selector.mjs';
 import { playHatchAnimation } from './animation.mjs';
 import { createInterface } from 'readline';
+import { findDexBuddy } from './dex.mjs';
+import { renderHomeScreen, renderCheckScreen, renderQuotaSummary, renderSearchStatus } from './ui.mjs';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -94,6 +96,20 @@ function log(...logArgs) {
 function errorJson(code, message) {
   output({ error: { code, message } });
   process.exit(1);
+}
+
+function mapResult(result, index = null) {
+  return {
+    ...(index !== null ? { index: index + 1 } : {}),
+    salt: result.salt,
+    species: result.bones.species,
+    rarity: result.bones.rarity,
+    stars: RARITY_STARS[result.bones.rarity],
+    eye: result.bones.eye,
+    hat: result.bones.hat,
+    shiny: result.bones.shiny,
+    stats: result.bones.stats,
+  };
 }
 
 // ─── Star check ─────────────────────────────────────
@@ -328,16 +344,15 @@ async function cmdCheck() {
   const context = requireClaudeContext();
   if (!context) return;
   const { userId, install, currentSalt } = context;
+  const salt = currentSalt || ORIGINAL_SALT;
+  const buddy = roll(userId, salt);
+  const state = loadState();
+  const limit = await getDailyLimit();
+  const used = getRollsToday(state);
+  const starred = await isStarred();
+  const eventRemaining = getApologyEventRemaining(state);
 
   if (flags.json) {
-    const salt = currentSalt || ORIGINAL_SALT;
-    const buddy = roll(userId, salt);
-    const state = loadState();
-    const limit = await getDailyLimit();
-    const used = getRollsToday(state);
-    const starred = await isStarred();
-    const eventRemaining = getApologyEventRemaining(state);
-
     output({
       command: 'check',
       account: userId.slice(0, 8),
@@ -350,29 +365,16 @@ async function cmdCheck() {
     return;
   }
 
-  console.log(`\n${DIM}Account: ${userId === 'anon' ? 'anonymous' : userId.slice(0, 8) + '...'}${RESET}`);
-
-  if (install) {
-    console.log(`${DIM}Install: ${install.type} (${install.path})${RESET}`);
-    const patched = currentSalt && currentSalt !== ORIGINAL_SALT;
-    console.log(`${DIM}SALT: ${currentSalt}${patched ? ' (patched!)' : ' (original)'}${RESET}`);
-    const result = roll(userId, currentSalt);
-    console.log(renderCard(result));
-  } else {
-    console.log(`${DIM}Claude Code not found — using original SALT${RESET}`);
-    console.log(renderCard(roll(userId, ORIGINAL_SALT)));
-  }
-
-  const state = loadState();
-  const limit = await getDailyLimit();
-  const used = getRollsToday(state);
-  const starred = await isStarred();
-  const tag = starred ? ' ⭐' : '';
-  console.log(`${DIM}오늘 가챠: ${used}/${limit}${tag}${RESET}\n`);
-  const eventRemaining = getApologyEventRemaining(state);
-  if (eventRemaining > 0) {
-    console.log(`${DIM}이벤트 보상: 5연차 ${eventRemaining}/${APOLOGY_EVENT.bonusRuns} 남음${RESET}\n`);
-  }
+  const accountLabel = userId === 'anon' ? 'anonymous' : `${userId.slice(0, 8)}...`;
+  const installLabel = install ? `${install.type} (${install.path})` : 'not found (previewing original salt)';
+  console.log(renderCheckScreen({
+    accountLabel,
+    installLabel,
+    salt,
+    patched: salt !== ORIGINAL_SALT,
+    quotaLines: renderQuotaSummary({ used, limit, starred, eventRemaining }),
+    buddyCard: renderCard(buddy, { showSalt: true }),
+  }));
 }
 
 async function cmdGacha(count = 10) {
@@ -389,21 +391,11 @@ async function cmdGacha(count = 10) {
   const rollCount = allowance.mode === 'event' ? allowance.pullCount : count;
 
   if (flags.json) {
-    const results = multiRoll(userId, rollCount);
+    const results = multiRoll(userId, rollCount, { guaranteedEpic: allowance.mode === 'event' });
     recordRoll(state, allowance.mode);
     addBatchToCollection(results);
 
-    const mapped = results.map((r, i) => ({
-      index: i + 1,
-      salt: r.salt,
-      species: r.bones.species,
-      rarity: r.bones.rarity,
-      stars: RARITY_STARS[r.bones.rarity],
-      eye: r.bones.eye,
-      hat: r.bones.hat,
-      shiny: r.bones.shiny,
-      stats: r.bones.stats,
-    }));
+    const mapped = results.map((result, index) => mapResult(result, index));
 
     // Check upgrade
     const best = results.reduce((a, b) => RARITY_ORDER[a.bones.rarity] >= RARITY_ORDER[b.bones.rarity] ? a : b);
@@ -424,7 +416,7 @@ async function cmdGacha(count = 10) {
 
   console.log(`\n${BOLD}  🎰 BUDDY GACHA — Rolling ${rollCount}x...${RESET}\n`);
 
-  const results = multiRoll(userId, rollCount);
+  const results = multiRoll(userId, rollCount, { guaranteedEpic: allowance.mode === 'event' });
 
   for (let i = 0; i < results.length; i++) {
     console.log(renderMiniCard(results[i], i));
@@ -483,17 +475,7 @@ async function cmdReroll() {
   if (flags.json) {
     const count = allowance.pullCount;
     const candidates = multiRoll(userId, count);
-    const mapped = candidates.map((r, i) => ({
-      index: i + 1,
-      salt: r.salt,
-      species: r.bones.species,
-      rarity: r.bones.rarity,
-      stars: RARITY_STARS[r.bones.rarity],
-      eye: r.bones.eye,
-      hat: r.bones.hat,
-      shiny: r.bones.shiny,
-      stats: r.bones.stats,
-    }));
+    const mapped = candidates.map((candidate, index) => mapResult(candidate, index));
 
     if (flags.pick != null) {
       const idx = flags.pick - 1;
@@ -660,28 +642,27 @@ async function cmdDex() {
       const targetSpecies = SPECIES[idx];
       const context = requireClaudeContext({ needsInstall: true, needsSalt: true });
       if (!context) return;
+      const collection = getCollection();
+      const search = findDexBuddy({
+        userId: context.userId,
+        targetSpecies,
+        entry: collection[targetSpecies],
+      });
 
-      // Roll until species matches (max 10000 attempts)
-      let found = null;
-      for (let attempt = 0; attempt < 10000; attempt++) {
-        const salt = randomSalt();
-        const result = roll(context.userId, salt);
-        if (result.bones.species === targetSpecies) {
-          found = { salt, ...result };
-          break;
-        }
+      if (!search.found) {
+        const rarityHint = search.criteria.rarity ? ` (${search.criteria.rarity})` : '';
+        errorJson('NOT_FOUND', `Could not find ${targetSpecies}${rarityHint} in ${search.attempts} rolls`);
       }
 
-      if (!found) {
-        errorJson('NOT_FOUND', `Could not find ${targetSpecies} in 10000 rolls`);
-      }
+      const found = search.found;
 
       if (flags.dryRun) {
         output({
           command: 'dex-pick',
           dryRun: true,
           target: targetSpecies,
-          found: { salt: found.salt, species: found.bones.species, rarity: found.bones.rarity, stars: RARITY_STARS[found.bones.rarity] },
+          found: mapResult(found),
+          criteria: search.criteria,
         });
         return;
       }
@@ -696,7 +677,8 @@ async function cmdDex() {
         command: 'dex-pick',
         success: true,
         target: targetSpecies,
-        result: { salt: found.salt, species: found.bones.species, rarity: found.bones.rarity, stars: RARITY_STARS[found.bones.rarity], eye: found.bones.eye, hat: found.bones.hat, stats: found.bones.stats },
+        result: mapResult(found),
+        criteria: search.criteria,
         patch: { type: patchResult.type, needsSwap: patchResult.needsSwap || false },
       });
       return;
@@ -748,13 +730,13 @@ async function cmdDex() {
     const stars = discovered ? ` ${RARITY_STARS[entry.bestRarity]}` : '';
     return {
       label: discovered ? `${rColor}${sp}${stars}${RESET}` : `${DIM}???${RESET}`,
-      description: discovered ? `x${entry.count}` : 'undiscovered',
+      description: discovered ? `${entry.bestRarity} • x${entry.count}` : 'undiscovered',
       value: sp,
     };
   });
 
   const choice = await select({
-    title: '🎯 Pick a buddy species!',
+    title: 'Speaki Dex Targets',
     items: selectorItems,
     columns: 3,
   });
@@ -770,26 +752,21 @@ async function cmdDex() {
   const context = requireClaudeContext({ needsInstall: true, needsSalt: true });
   if (!context) return;
 
-  console.log(`${DIM}  Searching...${RESET}`);
+  const search = findDexBuddy({
+    userId: context.userId,
+    targetSpecies,
+    entry: col[targetSpecies],
+  });
 
-  let found = null;
-  let attempts = 0;
-  for (let i = 0; i < 10000; i++) {
-    const salt = randomSalt();
-    const result = roll(context.userId, salt);
-    attempts++;
-    if (result.bones.species === targetSpecies) {
-      found = { salt, ...result };
-      break;
-    }
-  }
+  console.log(renderSearchStatus({ targetSpecies, criteria: search.criteria, attempts: search.attempts }));
 
-  if (!found) {
-    console.log(`${RED}  Could not find ${targetSpecies} in ${attempts} attempts${RESET}\n`);
+  if (!search.found) {
+    console.log(`${RED}  Could not find ${targetSpecies}${search.criteria.rarity ? ` (${search.criteria.rarity})` : ''} in ${search.attempts} attempts${RESET}\n`);
     return;
   }
 
-  console.log(`${GREEN}  Found in ${attempts} attempts!${RESET}\n`);
+  const found = search.found;
+  console.log(`${GREEN}  Found ${targetSpecies}${search.criteria.rarity ? ` @ ${search.criteria.rarity}` : ''}!${RESET}\n`);
   await playHatchAnimation(found.bones);
   console.log(renderCard(found, { showSalt: true }));
 
@@ -990,31 +967,15 @@ async function cmdUpdate() {
 }
 
 function showHelp() {
-  console.log(`
-${MAGENTA}${BOLD}  쪼아요~! 스피키의 버디 가챠예요!${RESET}
-${DIM}  claude-buddy-reroll v${process.env.npm_package_version || '1.4'}${RESET}
-
-${BOLD}  명령어${RESET}
-    ${CYAN}bdy check${RESET}              내 버디 확인
-    ${CYAN}bdy gacha${RESET} [N]          N연차 가챠! (기본 10)
-    ${CYAN}bdy reroll${RESET}             리롤 (버디 교체!)
-    ${CYAN}bdy restore${RESET}            원래 버디로 복원
-    ${CYAN}bdy dex${RESET}                도감 구경
-    ${CYAN}bdy schema${RESET} [cmd]       JSON 스키마 보기
-    ${CYAN}bdy update${RESET}             최신 버전으로 업데이트
-
-${BOLD}  에이전트 플래그${RESET}
-    ${GREEN}--json${RESET}                 JSON 출력 (로그는 stderr)
-    ${GREEN}--pick N${RESET}               N번째 자동 선택
-    ${GREEN}--dry-run${RESET}              패치 미리보기
-    ${GREEN}--fields a,b${RESET}           필드 필터링
-    ${GREEN}--limit N${RESET}              가챠 횟수 제한
-
-${BOLD}  제한${RESET}
-    하루 ${BASE_LIMIT}회 (스타 유저 +1)  |  이벤트 ${APOLOGY_EVENT.pullsPerRun}연차 x${APOLOGY_EVENT.bonusRuns}회 보너스
-
-${DIM}  buddy 또는 bdy 둘 다 돼요! 쪼아요~${RESET}
-`);
+  console.log(renderHomeScreen());
+  console.log(`${BOLD}Flags${RESET}`);
+  console.log(`  ${GREEN}--json${RESET}      stdout JSON, logs on stderr`);
+  console.log(`  ${GREEN}--pick N${RESET}    auto-select candidate or dex target`);
+  console.log(`  ${GREEN}--dry-run${RESET}   preview without patching`);
+  console.log(`  ${GREEN}--fields a,b${RESET} filter JSON output fields`);
+  console.log(`  ${GREEN}--limit N${RESET}   gacha pull count override`);
+  console.log();
+  console.log(`${DIM}Daily quota: ${BASE_LIMIT} (+1 with GitHub star) | Event bonus: ${APOLOGY_EVENT.pullsPerRun}-pull x${APOLOGY_EVENT.bonusRuns}${RESET}\n`);
 }
 
 // ─── Main ───────────────────────────────────────────

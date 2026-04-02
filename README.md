@@ -1,12 +1,11 @@
 # claude-buddy-reroll
 
 [![npm](https://img.shields.io/npm/v/claude-buddy-reroll?style=for-the-badge&color=cb3837)](https://www.npmjs.com/package/claude-buddy-reroll)
-[![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet?style=for-the-badge)](https://code.claude.com/docs/en/plugins)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
 > 쪼아요 쪼아요~ 버디 가챠 쪼아요~
 >
-> 맘에 안 드는 버디? 스피키가 다시 뽑아줄 거예요!
+> 맘에 안 드는 버디? 스피키가 npm 터미널에서 다시 뽑아줄 거예요!
 
 ---
 
@@ -16,20 +15,30 @@
 npm i -g claude-buddy-reroll
 ```
 
-설치하면 `buddy`와 `bdy` 명령어가 생겨요!
+설치하면 `buddy`와 `bdy` 명령어가 생겨요.
+
+기본 화면은 스피키 스타일의 리치 터미널 홈으로 시작하고, `dex`는 발견한 개체를 다시 적용할 수 있게 설계돼 있어요.
 
 ---
 
 ## CLI 사용법
 
 ```bash
+bdy                    # 스피키 홈 / 명령 요약
 bdy check              # 내 버디 확인
 bdy gacha              # 10연차 가챠!
 bdy gacha 20           # 20연차!
 bdy reroll             # 리롤 (인터랙티브 버디 교체)
-bdy dex                # 18종 도감
+bdy dex                # 18종 도감 + 발견 개체 재적용
 bdy restore            # 원래 버디로 복원
 ```
+
+## 지금 버전의 방향
+
+- npm-only 제품 표면
+- 스피키 감성의 richer terminal UI
+- species-only가 아니라 discovered variant를 우선 재적용하는 dex
+- JSON 모드는 유지해서 에이전트/스크립트 자동화도 가능
 
 ### Agent DX (JSON 모드)
 
@@ -53,39 +62,6 @@ bdy schema gacha                           # 특정 커맨드 스키마
 | `--fields a,b` | 출력 필드 필터링 |
 | `--limit N` | 가챠 횟수 지정 |
 
----
-
-## Claude Code 플러그인
-
-CLI 없이 Claude Code 안에서도 쓸 수 있어요!
-
-```bash
-# 마켓플레이스 등록
-/plugin marketplace add https://github.com/tellang/claude-buddy-reroll
-
-# 플러그인 설치
-/plugin install buddy-reroll
-```
-
-설치 후 말만 하면 돼요:
-
-```
-"가챠" / "buddy gacha" / "버디 뽑기"
-"내 버디" / "buddy check"
-"버디 도감" / "buddy dex"
-"버디 진단" / "buddy doctor"
-```
-
-<details>
-<summary>수동 설치</summary>
-
-```bash
-git clone https://github.com/tellang/claude-buddy-reroll ~/.claude/skills/buddy-reroll
-```
-</details>
-
----
-
 ## 이게 뭐예요?
 
 Claude Code의 `/buddy`는 계정 ID로 버디가 **고정**돼요.
@@ -101,7 +77,7 @@ Claude Code의 `/buddy`는 계정 ID로 버디가 **고정**돼요.
 패치:  hash("나" + "buddy-reroll-k8") → 🦫 capybara (legendary ★★★★★)
 ```
 
-Bun.hash(wyhash) + Mulberry32 알고리즘을 정확히 복제했어요.
+Bun.hash(wyhash) + Mulberry32 알고리즘을 정확히 복제했고, 도감에는 발견한 변형 정보를 저장해서 재적용할 수 있게 했어요.
 
 ---
 
@@ -155,7 +131,7 @@ Bun.hash(wyhash) + Mulberry32 알고리즘을 정확히 복제했어요.
 | 규칙 | 설명 |
 |------|------|
 | 하루 3회 | 자정 리셋 (스타 유저 +1) |
-| 이벤트 보너스 | 10연차 x3회 추가! |
+| 이벤트 보너스 | 10연차 x3회 추가 |
 | 백업 | 패치 전 자동 백업, `bdy restore`로 복원 |
 
 ---

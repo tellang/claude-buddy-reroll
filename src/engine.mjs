@@ -22,6 +22,7 @@ const STATS = ['DEBUGGING','PATIENCE','CHAOS','WISDOM','SNARK'];
 const RARITIES = ['common','uncommon','rare','epic','legendary'];
 
 const RARITY_WEIGHTS = { common: 60, uncommon: 25, rare: 10, epic: 4, legendary: 1 };
+const GUARANTEED_RARITY_ORDER = { common: 0, uncommon: 1, rare: 2, epic: 3, legendary: 4 };
 
 const RARITY_STARS = { common: '★', uncommon: '★★', rare: '★★★', epic: '★★★★', legendary: '★★★★★' };
 
@@ -122,6 +123,35 @@ function rollBones(rng) {
   };
 }
 
+function isEpicOrBetter(result) {
+  return GUARANTEED_RARITY_ORDER[result.bones.rarity] >= GUARANTEED_RARITY_ORDER.epic;
+}
+
+function rollGuaranteedEpic(userId, maxAttempts = 10000) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const salt = randomSalt();
+    const result = { salt, ...roll(userId, salt) };
+    if (isEpicOrBetter(result)) return result;
+  }
+
+  throw new Error('Failed to generate guaranteed epic buddy within retry budget');
+}
+
+export function applyTenPullGuarantee(results, createGuaranteedResult, randomFn = Math.random) {
+  const next = [...results];
+
+  for (let start = 0; start < next.length; start += 10) {
+    const batch = next.slice(start, start + 10);
+    if (batch.length < 10) continue;
+    if (batch.some(isEpicOrBetter)) continue;
+
+    const replaceIndex = start + Math.floor(randomFn() * batch.length);
+    next[replaceIndex] = createGuaranteedResult();
+  }
+
+  return next;
+}
+
 // Roll for a given userId + salt — exact match to dh1()
 export function roll(userId, salt = ORIGINAL_SALT) {
   const key = userId + salt;
@@ -141,16 +171,19 @@ export function randomSalt() {
 }
 
 // Multi-roll: generate N buddies with random salts
-export function multiRoll(userId, count = 10) {
+export function multiRoll(userId, count = 10, options = {}) {
+  const { guaranteedEpic = false } = options;
   const salts = [];
   for (let i = 0; i < count; i++) {
     salts.push(randomSalt());
   }
   const hashes = bunHashBatch(salts.map(salt => userId + salt));
-  return salts.map((salt, index) => ({
+  const results = salts.map((salt, index) => ({
     salt,
     ...rollBones(mulberry32(hashes[index])),
   }));
+  if (!guaranteedEpic) return results;
+  return applyTenPullGuarantee(results, () => rollGuaranteedEpic(userId));
 }
 
 export {
