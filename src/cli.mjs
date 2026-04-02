@@ -28,9 +28,9 @@ const BASE_LIMIT = 3;
 const STAR_BONUS = 1; // starred users get 1 extra roll (4 total = 40 pulls)
 const DEFAULT_PULLS = 10;
 const APOLOGY_EVENT = {
-  id: 'launch-2026-04-30pull',
-  bonusRuns: 1,
-  pullsPerRun: 30,
+  id: 'launch-2026-04-10x3',
+  bonusRuns: 3,
+  pullsPerRun: 10,
 };
 
 // ─── Flag parsing ────────────────────────────────────
