@@ -6,6 +6,13 @@ export function getSelectorRenderLineCount(bodyRows) {
   return bodyRows + 5;
 }
 
+export function getFullscreenBodyRows({ gridRows, previewHeight = 0, previewLinesLength = 0, footerLinesLength = 1, terminalRows = 24 }) {
+  const desiredBodyRows = Math.max(gridRows, previewHeight, previewLinesLength);
+  const reservedRows = 2 + 1 + Math.max(1, footerLinesLength);
+  const availableBodyRows = Math.max(gridRows, terminalRows - reservedRows);
+  return Math.min(desiredBodyRows, availableBodyRows);
+}
+
 /**
  * Show an interactive list selector with arrow key navigation.
  * @param {Object} options
@@ -50,7 +57,15 @@ export async function select({ title, items, columns = 2, selected = 0, preview 
     const resolvedFooter = Array.isArray(footerLines) && footerLines.length > 0
       ? footerLines
       : [`${CYAN}▶${RESET} ${items[cursor].label}${items[cursor].description ? `  ${DIM}${items[cursor].description}${RESET}` : ''}`];
-    const bodyRows = Math.max(rows, previewHeight, previewLines.length);
+    const bodyRows = fullscreen
+      ? getFullscreenBodyRows({
+        gridRows: rows,
+        previewHeight,
+        previewLinesLength: previewLines.length,
+        footerLinesLength: resolvedFooter.length,
+        terminalRows: process.stdout.rows || 24,
+      })
+      : Math.max(rows, previewHeight, previewLines.length);
     const totalLines = getSelectorRenderLineCount(Math.max(renderedBodyRows, bodyRows)) + (resolvedFooter.length - 1);
 
     if (fullscreen) {

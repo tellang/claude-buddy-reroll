@@ -410,6 +410,10 @@ function speakiStarRequest(species, rarity) {
 }
 
 function ask(question) {
+  if (process.stdin.isTTY) {
+    try { process.stdin.setRawMode?.(false); } catch {}
+    process.stdin.resume();
+  }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise(r => rl.question(question, a => { rl.close(); r(a.trim()); }));
 }
@@ -975,7 +979,7 @@ async function cmdDex(options = {}) {
       ? previewContext.userId
       : await chooseProfileLens(previewContext.userId, 'Choose Dex Profile Lens'))
     || null;
-  if (!profileLensId) return;
+  if (!profileLensId) return { promptReturn: false };
 
   // Show collection view
   console.log(renderCollection(profileLensId));
@@ -1050,7 +1054,7 @@ async function cmdDex(options = {}) {
     },
   });
 
-  if (!choice) return;
+  if (!choice) return { promptReturn: false };
 
   const targetSpecies = choice.value;
   const targetEntry = col[targetSpecies];
@@ -1058,7 +1062,7 @@ async function cmdDex(options = {}) {
   if (!targetEntry) {
     console.log(`\n${YELLOW}  ${targetSpecies.toUpperCase()} is not in your dex yet.${RESET}`);
     console.log(`${DIM}  Find it in gacha first, then come back to apply a collected form.${RESET}\n`);
-    return;
+    return { promptReturn: true };
   }
 
   console.log(`\n${BOLD}  Target: ${targetSpecies.toUpperCase()}${RESET}`);
@@ -1071,7 +1075,7 @@ async function cmdDex(options = {}) {
       ? `  Apply a ${targetSpecies} form from ${formatProfileBadge(profileLensId)} to the current account? [y/N]: `
       : `  Recover a matching ${targetSpecies} form from ${formatProfileBadge(profileLensId)}'s dex data? [y/N]: `);
   const confirmApplyFromDex = await ask(actionPrompt);
-  if (confirmApplyFromDex.toLowerCase() !== 'y') return;
+  if (confirmApplyFromDex.toLowerCase() !== 'y') return { promptReturn: true };
 
   const context = requireClaudeContext({ needsInstall: true, needsSalt: true, needsPatchSupport: true });
   if (!context) return;
@@ -1086,7 +1090,7 @@ async function cmdDex(options = {}) {
 
   if (!search.found) {
     console.log(`${RED}  Could not find ${targetSpecies}${search.criteria.rarity ? ` (${search.criteria.rarity})` : ''} in ${search.attempts} attempts${RESET}\n`);
-    return;
+    return { promptReturn: true };
   }
 
   const found = search.found;
@@ -1097,13 +1101,13 @@ async function cmdDex(options = {}) {
   const confirmApply = await ask(`  ${YELLOW}Apply this ${targetSpecies}? [y/N]: ${RESET}`);
   if (confirmApply.toLowerCase() !== 'y') {
     console.log(`${DIM}  Cancelled.${RESET}\n`);
-    return;
+    return { promptReturn: true };
   }
 
   const patchResult = patchSalt(context.install, context.currentSalt, found.salt);
   if (!patchResult.success) {
     console.log(`\n${RED}  ✗ Patch failed: ${patchResult.error}${RESET}\n`);
-    return;
+    return { promptReturn: true };
   }
 
   updatePatchedSalt(found.salt);
@@ -1115,6 +1119,7 @@ async function cmdDex(options = {}) {
   } else {
     console.log(`\n${GREEN}  ✓ ${targetSpecies} applied! Restart Claude Code.${RESET}\n`);
   }
+  return { promptReturn: true };
 }
 
 function cmdSchema(subCmd) {
@@ -1482,7 +1487,12 @@ async function cmdHome() {
         await cmdReroll();
         break;
       case 'dex':
-        await cmdDex({ profileLensId: activeProfileLensId, skipLensPrompt: true });
+        {
+          const dexResult = await cmdDex({ profileLensId: activeProfileLensId, skipLensPrompt: true });
+          if (dexResult?.promptReturn === false) {
+            continue;
+          }
+        }
         break;
       case 'doctor':
         await cmdDoctor('profile', activeProfileLensId);
