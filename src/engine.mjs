@@ -51,7 +51,7 @@ function bunHashBatch(keys) {
     return hashes;
   } catch (error) {
     const detail = error?.message || String(error);
-    throw new Error(`Bun is required for accurate buddy hashing. Run \`npm run setup\` first. (${detail})`);
+    throw new Error(`Bun is required for accurate buddy hashing. Run \`bdy setup\` (or \`npm run setup\` in the repo) first. (${detail})`);
   }
 }
 

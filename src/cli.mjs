@@ -12,6 +12,7 @@ if (process.platform === 'win32') {
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIES, RARITIES, RARITY_WEIGHTS, applyTenPullGuarantee, generateGuaranteedEpicRoll, isEpicOrBetter } from './engine.mjs';
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { resolveClaudeContext, updatePatchedSalt } from './context.mjs';
@@ -982,6 +983,29 @@ async function cmdUpdate() {
   }
 }
 
+async function cmdSetup() {
+  const { execFileSync } = await import('child_process');
+  const installHookPath = fileURLToPath(new URL('../scripts/install-hook.mjs', import.meta.url));
+
+  if (flags.json) {
+    try {
+      execFileSync(process.execPath, [installHookPath], { stdio: 'pipe' });
+      output({ command: 'setup', success: true });
+    } catch (error) {
+      errorJson('SETUP_FAILED', error?.message || String(error));
+    }
+    return;
+  }
+
+  console.log(`\n${MAGENTA}${BOLD}  쪼아요~! 런타임 셋업 확인할게요.${RESET}\n`);
+  try {
+    execFileSync(process.execPath, [installHookPath], { stdio: 'inherit' });
+    console.log(`\n${GREEN}  ✓ setup complete${RESET}\n`);
+  } catch (error) {
+    console.log(`\n${RED}  ✗ setup failed: ${error?.message || String(error)}${RESET}\n`);
+  }
+}
+
 function showHelp() {
   console.log(renderHomeScreen());
   console.log(`${BOLD}Flags${RESET}`);
@@ -990,6 +1014,9 @@ function showHelp() {
   console.log(`  ${GREEN}--dry-run${RESET}   preview without patching`);
   console.log(`  ${GREEN}--fields a,b${RESET} filter JSON output fields`);
   console.log(`  ${GREEN}--limit N${RESET}   gacha pull count override`);
+  console.log();
+  console.log(`${BOLD}Setup${RESET}`);
+  console.log(`  ${GREEN}bdy setup${RESET}    install Bun/runtime hook support if missing`);
   console.log();
   console.log(`${DIM}Daily quota: ${BASE_LIMIT} (+1 with GitHub star) | Event bonus: ${APOLOGY_EVENT.pullsPerRun}-pull x${APOLOGY_EVENT.bonusRuns}${RESET}\n`);
 }
@@ -1002,6 +1029,7 @@ switch (cmd) {
   case 'reroll':  await cmdReroll(); break;
   case 'restore': await cmdRestore(); break;
   case 'dex':     await cmdDex(); break;
+  case 'setup':   await cmdSetup(); break;
   case 'schema':  cmdSchema(args[0]); break;
   case 'update':  await cmdUpdate(); break;
   case '--help': case '-h': case 'help': showHelp(); break;

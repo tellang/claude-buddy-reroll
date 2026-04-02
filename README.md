@@ -19,6 +19,12 @@ npm i -g claude-buddy-reroll
 
 기본 화면은 스피키 스타일의 리치 터미널 홈으로 시작하고, `dex`는 발견한 개체를 다시 적용할 수 있게 설계돼 있어요.
 
+처음 설치할 때 런타임 셋업이 자동으로 Bun과 Claude 연동을 준비해요. 자동 셋업이 실패했거나 `Bun is required` 에러가 보이면 아래를 한 번 실행하세요.
+
+```bash
+bdy setup
+```
+
 ---
 
 ## CLI 사용법
@@ -31,6 +37,7 @@ bdy gacha 20           # 20연차!
 bdy reroll             # 리롤 (인터랙티브 버디 교체)
 bdy dex                # 18종 도감 + 발견 개체 재적용
 bdy restore            # 원래 버디로 복원
+bdy setup              # Bun / 런타임 셋업 복구
 ```
 
 ## 지금 버전의 방향
