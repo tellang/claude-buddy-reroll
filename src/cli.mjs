@@ -5,11 +5,12 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import { roll, multiRoll, randomSalt, ORIGINAL_SALT, SPECIES, EYES, HATS, STATS, RARITIES, RARITY_WEIGHTS, RARITY_STARS } from './engine.mjs';
-import { detectInstall, readCurrentSalt, patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
+import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS } from './engine.mjs';
+import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
+import { resolveClaudeContext } from './context.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
 import { addBatchToCollection, renderCollection } from './collection.mjs';
-import { playHatchAnimation, playQuickReveal } from './animation.mjs';
+import { playHatchAnimation } from './animation.mjs';
 import { createInterface } from 'readline';
 
 const BOLD = '\x1b[1m';
@@ -25,6 +26,12 @@ const HOME = process.env.USERPROFILE || process.env.HOME || '';
 const STATE_PATH = resolve(HOME, '.claude', 'buddy-reroll-state.json');
 const BASE_LIMIT = 3;
 const STAR_BONUS = 1; // starred users get 1 extra roll (4 total = 40 pulls)
+const DEFAULT_PULLS = 10;
+const APOLOGY_EVENT = {
+  id: 'apology-2026-04-bun-fix',
+  bonusRuns: 2,
+  pullsPerRun: 5,
+};
 
 // ─── Star check ─────────────────────────────────────
 
@@ -54,9 +61,17 @@ async function getDailyLimit() {
 
 function loadState() {
   try {
-    if (existsSync(STATE_PATH)) return JSON.parse(readFileSync(STATE_PATH, 'utf-8'));
+    if (existsSync(STATE_PATH)) {
+      const parsed = JSON.parse(readFileSync(STATE_PATH, 'utf-8'));
+      return {
+        rolls: [],
+        bestRarity: 'common',
+        eventUses: [],
+        ...parsed,
+      };
+    }
   } catch {}
-  return { rolls: [], bestRarity: 'common' };
+  return { rolls: [], bestRarity: 'common', eventUses: [] };
 }
 
 function saveState(state) {
@@ -72,28 +87,95 @@ function getRollsToday(state) {
   return (state.rolls || []).filter(r => r.date === today).length;
 }
 
-function recordRoll(state) {
-  if (!state.rolls) state.rolls = [];
-  state.rolls.push({ date: todayKey(), ts: Date.now() });
+function getApologyEventUses(state) {
+  return (state.eventUses || []).filter(event => event.id === APOLOGY_EVENT.id).length;
+}
+
+function getApologyEventRemaining(state) {
+  return Math.max(0, APOLOGY_EVENT.bonusRuns - getApologyEventUses(state));
+}
+
+function recordRoll(state, mode = 'daily') {
+  if (mode === 'event') {
+    if (!state.eventUses) state.eventUses = [];
+    state.eventUses.push({ id: APOLOGY_EVENT.id, ts: Date.now() });
+  } else {
+    if (!state.rolls) state.rolls = [];
+    state.rolls.push({ date: todayKey(), ts: Date.now() });
+  }
   // Keep only last 30 days
   const cutoff = Date.now() - 30 * 86400000;
   state.rolls = state.rolls.filter(r => r.ts > cutoff);
+  state.eventUses = (state.eventUses || []).filter(r => r.ts > cutoff);
   saveState(state);
 }
 
-async function checkLimit(state) {
+async function getRollAllowance(state, options = {}) {
+  const supportsEvent = options.supportsEvent ?? false;
   const limit = await getDailyLimit();
   const used = getRollsToday(state);
   const starred = await isStarred();
-  if (used >= limit) {
+  const eventRemaining = getApologyEventRemaining(state);
+
+  if (used < limit) {
+    return {
+      allowed: true,
+      mode: 'daily',
+      pullCount: DEFAULT_PULLS,
+      limit,
+      used,
+      starred,
+      eventRemaining,
+    };
+  }
+
+  if (supportsEvent && eventRemaining > 0) {
+    return {
+      allowed: true,
+      mode: 'event',
+      pullCount: APOLOGY_EVENT.pullsPerRun,
+      limit,
+      used,
+      starred,
+      eventRemaining,
+    };
+  }
+
+  return {
+    allowed: false,
+    mode: 'blocked',
+    pullCount: 0,
+    limit,
+    used,
+    starred,
+    eventRemaining,
+  };
+}
+
+async function checkLimit(state, options = {}) {
+  const allowance = await getRollAllowance(state, options);
+  const { allowed, mode, pullCount, limit, used, starred, eventRemaining } = allowance;
+
+  if (!allowed) {
     console.log(`\n${YELLOW}  ⚠ 오늘 가챠 ${limit}회 소진! 내일 다시 도전하세요.${RESET}`);
+    if (eventRemaining === 0) {
+      console.log(`${DIM}  이벤트 보상 5연차 2회도 모두 사용했습니다.${RESET}`);
+    }
     if (!starred) console.log(`${DIM}  💡 GitHub Star 찍으면 +1회 보너스! (30뽑 → 40뽑)${RESET}`);
     console.log(`${DIM}  (${used}/${limit} used today)${RESET}\n`);
-    return false;
+    return allowance;
   }
+
   const tag = starred ? ' ⭐' : '';
-  console.log(`${DIM}  가챠 잔여: ${limit - used}/${limit}${tag}${RESET}`);
-  return true;
+  if (mode === 'event') {
+    console.log(`${DIM}  이벤트 보상 사용 가능: ${eventRemaining}/${APOLOGY_EVENT.bonusRuns} | 이번 차수 ${pullCount}연차${RESET}`);
+  } else {
+    console.log(`${DIM}  가챠 잔여: ${limit - used}/${limit}${tag}${RESET}`);
+    if (eventRemaining > 0) {
+      console.log(`${DIM}  이벤트 보상: 5연차 ${eventRemaining}회 남음${RESET}`);
+    }
+  }
+  return allowance;
 }
 
 // ─── Rarity helpers ─────────────────────────────────
@@ -120,36 +202,49 @@ function speakiStarRequest(species, rarity) {
   console.log();
 }
 
-// ─── User utils ─────────────────────────────────────
-
-function getUserId() {
-  const configPath = resolve(HOME, '.claude.json');
-  if (!existsSync(configPath)) return 'anon';
-  try {
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    return config.oauthAccount?.accountUuid ?? config.userID ?? 'anon';
-  } catch { return 'anon'; }
-}
-
 function ask(question) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise(r => rl.question(question, a => { rl.close(); r(a.trim()); }));
 }
 
+function requireClaudeContext(options = {}) {
+  const { needsInstall = false, needsSalt = false } = options;
+  const context = resolveClaudeContext();
+
+  if (!context.userId || context.userId === 'anon') {
+    console.log(`\n${RED}  ✗ Claude account ID를 ~/.claude.json 에서 찾지 못했습니다.${RESET}`);
+    console.log(`${DIM}  oauthAccount.accountUuid 또는 userID가 필요합니다.${RESET}\n`);
+    return null;
+  }
+
+  if (needsInstall && !context.install) {
+    console.log(`\n${RED}  ✗ Claude Code 설치를 찾지 못했습니다.${RESET}\n`);
+    return null;
+  }
+
+  if (needsSalt && !context.currentSalt) {
+    console.log(`\n${RED}  ✗ 설치된 Claude Code에서 현재 SALT를 동적으로 읽지 못했습니다.${RESET}`);
+    console.log(`${DIM}  install-hook을 다시 실행하거나 설치 경로를 확인해 주세요.${RESET}\n`);
+    return null;
+  }
+
+  return context;
+}
+
 // ─── Commands ───────────────────────────────────────
 
 async function cmdCheck() {
-  const userId = getUserId();
-  const install = detectInstall();
+  const context = requireClaudeContext();
+  if (!context) return;
+  const { userId, install, currentSalt } = context;
 
   console.log(`\n${DIM}Account: ${userId === 'anon' ? 'anonymous' : userId.slice(0, 8) + '...'}${RESET}`);
 
   if (install) {
     console.log(`${DIM}Install: ${install.type} (${install.path})${RESET}`);
-    const salt = readCurrentSalt(install);
-    const patched = salt && salt !== ORIGINAL_SALT;
-    console.log(`${DIM}SALT: ${salt}${patched ? ' (patched!)' : ' (original)'}${RESET}`);
-    const result = roll(userId, salt || ORIGINAL_SALT);
+    const patched = currentSalt && currentSalt !== ORIGINAL_SALT;
+    console.log(`${DIM}SALT: ${currentSalt}${patched ? ' (patched!)' : ' (original)'}${RESET}`);
+    const result = roll(userId, currentSalt);
     console.log(renderCard(result));
   } else {
     console.log(`${DIM}Claude Code not found — using original SALT${RESET}`);
@@ -162,16 +257,24 @@ async function cmdCheck() {
   const starred = await isStarred();
   const tag = starred ? ' ⭐' : '';
   console.log(`${DIM}오늘 가챠: ${used}/${limit}${tag}${RESET}\n`);
+  const eventRemaining = getApologyEventRemaining(state);
+  if (eventRemaining > 0) {
+    console.log(`${DIM}이벤트 보상: 5연차 ${eventRemaining}/${APOLOGY_EVENT.bonusRuns} 남음${RESET}\n`);
+  }
 }
 
 async function cmdGacha(count = 10) {
   const state = loadState();
-  if (!checkLimit(state)) return;
+  const allowance = await checkLimit(state, { supportsEvent: true });
+  if (!allowance.allowed) return;
 
-  const userId = getUserId();
-  console.log(`\n${BOLD}  🎰 BUDDY GACHA — Rolling ${count}x...${RESET}\n`);
+  const context = requireClaudeContext();
+  if (!context) return;
+  const { userId } = context;
+  const rollCount = allowance.mode === 'event' ? allowance.pullCount : count;
+  console.log(`\n${BOLD}  🎰 BUDDY GACHA — Rolling ${rollCount}x...${RESET}\n`);
 
-  const results = multiRoll(userId, count);
+  const results = multiRoll(userId, rollCount);
 
   for (let i = 0; i < results.length; i++) {
     console.log(renderMiniCard(results[i], i));
@@ -195,7 +298,7 @@ async function cmdGacha(count = 10) {
   console.log(renderCard(best, { showSalt: true, index: bestIdx }));
 
   // Record roll + save to collection
-  recordRoll(state);
+  recordRoll(state, allowance.mode);
   addBatchToCollection(results);
 
   // Check upgrade → star request
@@ -206,7 +309,7 @@ async function cmdGacha(count = 10) {
   }
 
   // View details
-  const answer = await ask(`  View details? (1-${count}) or 'q': `);
+  const answer = await ask(`  View details? (1-${rollCount}) or 'q': `);
   if (answer && answer !== 'q') {
     const idx = parseInt(answer) - 1;
     if (idx >= 0 && idx < results.length) {
@@ -217,18 +320,12 @@ async function cmdGacha(count = 10) {
 
 async function cmdReroll() {
   const state = loadState();
-  if (!checkLimit(state)) return;
+  const allowance = await checkLimit(state, { supportsEvent: false });
+  if (!allowance.allowed) return;
 
-  const install = detectInstall();
-  if (!install) {
-    console.log(`\n${RED}  ✗ Claude Code not found${RESET}`);
-    console.log(`${DIM}  native: ~/.local/bin/claude(.exe)${RESET}`);
-    console.log(`${DIM}  npm:    npm i -g @anthropic-ai/claude-code${RESET}\n`);
-    return;
-  }
-
-  const userId = getUserId();
-  const currentSalt = readCurrentSalt(install) || ORIGINAL_SALT;
+  const context = requireClaudeContext({ needsInstall: true, needsSalt: true });
+  if (!context) return;
+  const { userId, install, currentSalt } = context;
 
   console.log(`\n${BOLD}  🔄 BUDDY REROLL${RESET}`);
   console.log(`${DIM}  Install: ${install.type} | SALT: ${currentSalt}${RESET}\n`);
@@ -237,7 +334,7 @@ async function cmdReroll() {
   console.log(renderCard(roll(userId, currentSalt)));
 
   // Roll candidates
-  const count = 10;
+  const count = allowance.pullCount;
   console.log(`${BOLD}  Rolling ${count} candidates...${RESET}\n`);
   const candidates = multiRoll(userId, count);
 
@@ -280,7 +377,7 @@ async function cmdReroll() {
   const soulResult = clearSoul();
 
   // Record
-  recordRoll(state);
+  recordRoll(state, allowance.mode);
 
   // Report based on install type
   if (result.type === 'npm') {
@@ -335,7 +432,9 @@ async function cmdDex() {
   console.log(`  ${DIM}Shiny chance: 1%${RESET}`);
   const limit = await getDailyLimit();
   const starred = await isStarred();
-  console.log(`  ${DIM}Daily gacha limit: ${limit}${starred ? ' (⭐ star bonus!)' : ' (+1 with GitHub star)'}${RESET}\n`);
+  const eventRemaining = getApologyEventRemaining(loadState());
+  console.log(`  ${DIM}Daily gacha limit: ${limit}${starred ? ' (⭐ star bonus!)' : ' (+1 with GitHub star)'}${RESET}`);
+  console.log(`  ${DIM}Apology event: +${APOLOGY_EVENT.bonusRuns} extra ${APOLOGY_EVENT.pullsPerRun}-pulls (${eventRemaining} left)${RESET}\n`);
 }
 
 function showHelp() {
@@ -350,7 +449,8 @@ ${BOLD}Usage:${RESET}
   buddy-reroll dex               All species and rarities
 
 ${BOLD}Limits:${RESET}
-  Daily gacha: ${DAILY_LIMIT}x/day (resets at midnight)
+  Daily gacha: ${BASE_LIMIT}x/day (resets at midnight)
+  Event bonus: +${APOLOGY_EVENT.bonusRuns} extra gacha runs at ${APOLOGY_EVENT.pullsPerRun} pulls each
 
 ${BOLD}Install support:${RESET}
   native binary  ~/.local/bin/claude(.exe) — binary patch

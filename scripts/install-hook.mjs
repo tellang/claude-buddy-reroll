@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { execSync } from 'child_process';
+import { saveInstallContext, maskUserId } from '../src/context.mjs';
 
 const HOME = process.env.USERPROFILE || process.env.HOME || '';
 const SETTINGS = resolve(HOME, '.claude', 'settings.json');
@@ -21,13 +22,20 @@ try {
       execSync('powershell -c "irm bun.sh/install.ps1 | iex"', { stdio: 'inherit', timeout: 60000 });
       console.log('✓ Bun installed');
     } catch {
-      console.log('⚠ Bun install failed — gacha will use FNV-1a fallback (predictions may differ)');
+      console.log('✗ Bun install failed — accurate buddy prediction requires Bun.hash');
+      process.exit(1);
     }
   }
 
   // 2. Copy swap script
   copyFileSync(SWAP_SRC, SWAP_DST);
   console.log('✓ buddy-swap.sh copied to ~/.claude/');
+
+  const context = saveInstallContext();
+  console.log(`✓ Runtime context saved: ${context.path}`);
+  console.log(`  Install: ${context.install?.type ?? 'not-found'}`);
+  console.log(`  User: ${maskUserId(context.userId)}`);
+  console.log(`  SALT: ${context.currentSalt}`);
 
   // Read settings
   let settings = {};

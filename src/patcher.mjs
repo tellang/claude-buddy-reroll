@@ -63,8 +63,8 @@ export function readCurrentSalt(install) {
 
   if (textContent.includes(ORIGINAL_SALT)) return ORIGINAL_SALT;
 
-  // Check for patched salt
-  const match = textContent.match(/buddy-reroll-[a-z0-9]{2}/);
+  // Check for patched salt or the current friend-style salt in the installed build.
+  const match = textContent.match(/\b(?:buddy-reroll-[a-z0-9]{2}|friend-\d{4}-\d{3})\b/);
   if (match) return match[0];
 
   return null;

@@ -1,6 +1,10 @@
 // Claude Code Buddy Engine — exact replica of the official algorithm
 // Source: cli.js v2.1.89 (deobfuscated)
 
+import { execFileSync } from 'child_process';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
+
 const ORIGINAL_SALT = 'friend-2026-401';
 
 const SPECIES = [
@@ -25,15 +29,33 @@ const RARITY_COLORS = { common: 'inactive', uncommon: 'success', rare: 'permissi
 
 const STAT_FLOORS = { common: 5, uncommon: 15, rare: 25, epic: 35, legendary: 50 };
 
-// Hash — matches Claude Code's Xk_(): Bun.hash (wyhash) primary, FNV-1a fallback
-function fnv1a(str) {
-  if (typeof Bun !== 'undefined') return Number(BigInt(Bun.hash(str)) & 0xffffffffn);
-  let hash = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    hash ^= str.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
+const SRC_DIR = dirname(fileURLToPath(import.meta.url));
+const BUN_HASH_SCRIPT = resolve(SRC_DIR, 'bun-hash.mjs');
+
+// Hash — Claude Code uses Bun.hash (wyhash). No fallback is allowed.
+function bunHashBatch(keys) {
+  if (typeof Bun !== 'undefined' && typeof Bun.hash === 'function') {
+    return keys.map(key => Number(BigInt(Bun.hash(key)) & 0xffffffffn));
   }
-  return hash >>> 0;
+
+  try {
+    const out = execFileSync('bun', [BUN_HASH_SCRIPT, JSON.stringify(keys)], {
+      encoding: 'utf-8',
+      windowsHide: true,
+    }).trim();
+    const hashes = JSON.parse(out);
+    if (!Array.isArray(hashes) || hashes.length !== keys.length) {
+      throw new Error('Unexpected hash payload');
+    }
+    return hashes;
+  } catch (error) {
+    const detail = error?.message || String(error);
+    throw new Error(`Bun is required for accurate buddy hashing. Run \`npm run setup\` first. (${detail})`);
+  }
+}
+
+function bunHash32(str) {
+  return bunHashBatch([str])[0];
 }
 
 // Mulberry32 PRNG — exact match to Claude Code's Mk_()
@@ -103,7 +125,7 @@ function rollBones(rng) {
 // Roll for a given userId + salt — exact match to dh1()
 export function roll(userId, salt = ORIGINAL_SALT) {
   const key = userId + salt;
-  const rng = mulberry32(fnv1a(key));
+  const rng = mulberry32(bunHash32(key));
   return rollBones(rng);
 }
 
@@ -120,17 +142,19 @@ export function randomSalt() {
 
 // Multi-roll: generate N buddies with random salts
 export function multiRoll(userId, count = 10) {
-  const results = [];
+  const salts = [];
   for (let i = 0; i < count; i++) {
-    const salt = randomSalt();
-    const result = roll(userId, salt);
-    results.push({ salt, ...result });
+    salts.push(randomSalt());
   }
-  return results;
+  const hashes = bunHashBatch(salts.map(salt => userId + salt));
+  return salts.map((salt, index) => ({
+    salt,
+    ...rollBones(mulberry32(hashes[index])),
+  }));
 }
 
 export {
   ORIGINAL_SALT, SPECIES, EYES, HATS, STATS, RARITIES,
   RARITY_WEIGHTS, RARITY_STARS, RARITY_COLORS, STAT_FLOORS,
-  fnv1a, mulberry32,
+  bunHash32, mulberry32,
 };
