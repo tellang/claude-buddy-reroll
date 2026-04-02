@@ -3,7 +3,7 @@ import { emitKeypressEvents } from 'readline';
 import { padAnsiEnd, stripAnsi } from './ansi.mjs';
 
 export function getSelectorRenderLineCount(bodyRows) {
-  return bodyRows + 4;
+  return bodyRows + 5;
 }
 
 /**
@@ -17,9 +17,10 @@ export function getSelectorRenderLineCount(bodyRows) {
  * @param {number} [options.previewHeight=0] - Reserved preview panel height
  * @param {boolean} [options.fullscreen=false] - Render as fullscreen screen instead of in-place widget
  * @param {number} [options.animationIntervalMs=0] - Optional preview animation interval
+ * @param {(item: any, meta: { cursor: number, tick: number }) => string[]} [options.footer] - Optional footer renderer
  * @returns {Promise<{index: number, value: any} | null>} Selected item or null if cancelled
  */
-export async function select({ title, items, columns = 2, selected = 0, preview = null, previewHeight = 0, fullscreen = false, animationIntervalMs = 0 }) {
+export async function select({ title, items, columns = 2, selected = 0, preview = null, previewHeight = 0, fullscreen = false, animationIntervalMs = 0, footer = null }) {
   if (!process.stdin.isTTY) return null;
 
   const RESET = '\x1b[0m';
@@ -41,8 +42,12 @@ export async function select({ title, items, columns = 2, selected = 0, preview 
   function render() {
     const previewText = typeof preview === 'function' ? preview(items[cursor], { cursor, tick }) : '';
     const previewLines = previewText ? String(previewText).split('\n') : [];
+    const footerLines = typeof footer === 'function' ? footer(items[cursor], { cursor, tick }) : null;
+    const resolvedFooter = Array.isArray(footerLines) && footerLines.length > 0
+      ? footerLines
+      : [`${CYAN}▶${RESET} ${items[cursor].label}${items[cursor].description ? `  ${DIM}${items[cursor].description}${RESET}` : ''}`];
     const bodyRows = Math.max(rows, previewHeight, previewLines.length);
-    const totalLines = getSelectorRenderLineCount(Math.max(renderedBodyRows, bodyRows));
+    const totalLines = getSelectorRenderLineCount(Math.max(renderedBodyRows, bodyRows)) + (resolvedFooter.length - 1);
 
     if (fullscreen) {
       if (!didFullscreenInit) {
@@ -89,10 +94,10 @@ export async function select({ title, items, columns = 2, selected = 0, preview 
       process.stdout.write(`\x1b[2K${gridLine}${previewLine}\n`);
     }
 
-    // Footer
-    const item = items[cursor];
-    const desc = item.description ? `  ${DIM}${item.description}${RESET}` : '';
-    process.stdout.write(`\x1b[2K\n\x1b[2K  ${CYAN}▶${RESET} ${items[cursor].label}${desc}\n`);
+    process.stdout.write(`\x1b[2K\n`);
+    for (const line of resolvedFooter) {
+      process.stdout.write(`\x1b[2K  ${line}\n`);
+    }
     renderedBodyRows = bodyRows;
   }
 
@@ -104,7 +109,9 @@ export async function select({ title, items, columns = 2, selected = 0, preview 
     if (!fullscreen) {
       const initialPreviewText = typeof preview === 'function' ? preview(items[cursor], { cursor, tick }) : '';
       const initialPreviewLines = initialPreviewText ? String(initialPreviewText).split('\n') : [];
-      const totalLines = getSelectorRenderLineCount(Math.max(rows, previewHeight, initialPreviewLines.length));
+      const initialFooter = typeof footer === 'function' ? footer(items[cursor], { cursor, tick }) : null;
+      const resolvedFooter = Array.isArray(initialFooter) && initialFooter.length > 0 ? initialFooter : [''];
+      const totalLines = getSelectorRenderLineCount(Math.max(rows, previewHeight, initialPreviewLines.length)) + (resolvedFooter.length - 1);
       for (let i = 0; i < totalLines; i++) process.stdout.write('\n');
     }
 

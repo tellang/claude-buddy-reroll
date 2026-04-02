@@ -610,9 +610,9 @@ async function cmdCheck() {
     salt,
     patched: salt !== ORIGINAL_SALT,
     quotaLines: renderQuotaSummary({ used, limit, starred, eventRemaining }),
+    profileLine: `${DIM}Profile${RESET} ${formatProfileBadge(userId)}  ${DIM}Known${RESET} ${listKnownProfiles().length}`,
     buddyCard: renderCard(buddy, { showSalt: true }),
   }));
-  console.log(`${DIM}Profile: ${formatProfileBadge(userId)} | Known profiles: ${listKnownProfiles().length}${RESET}\n`);
 }
 
 async function cmdGacha(count = 10) {
@@ -982,6 +982,10 @@ async function cmdDex() {
     previewHeight: 24,
     animationIntervalMs: 450,
     preview: (item, meta) => buildTamagotchiPreview(item.value, col[item.value], meta.tick),
+    footer: (item) => [
+      `${CYAN}▶${RESET} ${item.label}  ${item.description ? `${DIM}${item.description}${RESET}` : ''}`,
+      `${DIM}Profile ${formatProfileBadge(previewContext.userId)} • Arrows move • Enter inspect/apply • Esc back${RESET}`,
+    ],
   });
 
   if (!choice) return;
@@ -1375,10 +1379,15 @@ async function cmdHome() {
         { label: `${GREEN}Gacha 10x${RESET}`, description: '기본 10연차 바로 실행', value: 'gacha' },
         { label: `${GREEN}Reroll${RESET}`, description: '후보 뽑고 바로 적용', value: 'reroll' },
         { label: `${GREEN}Dex${RESET}`, description: '도감 탐색하고 바로 적용', value: 'dex' },
+        { label: `${GREEN}Doctor${RESET}`, description: '프로필/도감 진단', value: 'doctor' },
         { label: `${GREEN}Restore${RESET}`, description: '원래 버디로 복원', value: 'restore' },
         { label: `${GREEN}Setup${RESET}`, description: 'Bun / 런타임 셋업 복구', value: 'setup' },
         { label: `${GREEN}Update${RESET}`, description: '업데이트 후 셋업까지 실행', value: 'update' },
         { label: `${RED}Quit${RESET}`, description: '홈 종료', value: 'quit' },
+      ],
+      footer: (item) => [
+        `${CYAN}▶${RESET} ${item.label}  ${item.description ? `${DIM}${item.description}${RESET}` : ''}`,
+        `${DIM}Arrows move • Enter select • Esc back • Profile ${formatProfileBadge(resolveClaudeContext().userId)}${RESET}`,
       ],
     });
 
@@ -1399,6 +1408,9 @@ async function cmdHome() {
         break;
       case 'dex':
         await cmdDex();
+        break;
+      case 'doctor':
+        await cmdDoctor();
         break;
       case 'restore':
         await cmdRestore();

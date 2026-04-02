@@ -1,4 +1,5 @@
 import { RARITIES, RARITY_STARS, RARITY_WEIGHTS } from './engine.mjs';
+import { padAnsiEnd, visibleLength } from './ansi.mjs';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -33,11 +34,11 @@ export function renderBanner(title = 'SPEAKI BUDDY LAB', subtitle = 'npm-only bu
 }
 
 export function renderPanel(title, lines = [], tone = CYAN) {
-  const width = Math.max(title.length + 6, ...lines.map((line) => String(line).length), 28);
-  const content = lines.map((line) => `  ${tone}│${RESET} ${String(line).padEnd(width - 4)} ${tone}│${RESET}`);
+  const width = Math.max(visibleLength(title) + 6, ...lines.map((line) => visibleLength(String(line))), 28);
+  const content = lines.map((line) => `  ${tone}│${RESET} ${padAnsiEnd(String(line), width - 4)} ${tone}│${RESET}`);
   return [
     `${tone}┌${'─'.repeat(width - 2)}┐${RESET}`,
-    `${tone}│${RESET} ${tone}${BOLD}${title}${RESET}${' '.repeat(Math.max(0, width - title.length - 4))}${tone}│${RESET}`,
+    `${tone}│${RESET} ${tone}${BOLD}${title}${RESET}${' '.repeat(Math.max(0, width - visibleLength(title) - 4))}${tone}│${RESET}`,
     `${tone}├${'─'.repeat(width - 2)}┤${RESET}`,
     ...content,
     `${tone}└${'─'.repeat(width - 2)}┘${RESET}`,
@@ -82,13 +83,14 @@ export function renderHomeScreen() {
   ].join('\n');
 }
 
-export function renderCheckScreen({ accountLabel, installLabel, salt, patched, quotaLines, buddyCard }) {
+export function renderCheckScreen({ accountLabel, installLabel, salt, patched, quotaLines, buddyCard, profileLine = '' }) {
   return [
     renderBanner('SPEAKI BUDDY STATUS', 'current companion, install, and quota'),
     renderPanel('Runtime', [
       `${BOLD}Account${RESET} ${accountLabel}`,
       `${BOLD}Install${RESET} ${installLabel}`,
       `${BOLD}Salt${RESET} ${salt}${patched ? ` ${YELLOW}(patched)${RESET}` : ` ${DIM}(original)${RESET}`}`,
+      ...(profileLine ? [profileLine] : []),
     ]),
     renderPanel('Quota', quotaLines, GREEN),
     buddyCard,

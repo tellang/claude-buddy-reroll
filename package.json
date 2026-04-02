@@ -1,11 +1,11 @@
 {
   "name": "claude-buddy-reroll",
-  "version": "1.8.15",
+  "version": "1.8.16",
   "description": "Speaki-styled npm terminal for buddy rerolls, dex replay, and SALT patching.",
   "type": "module",
   "bin": {
-    "buddy": "./src/cli.mjs",
-    "bdy": "./src/cli.mjs"
+    "buddy": "./bin/buddy.js",
+    "bdy": "./bin/bdy.js"
   },
   "scripts": {
     "start": "bun src/cli.mjs",
@@ -25,6 +25,7 @@
   "homepage": "https://github.com/tellang/claude-buddy-reroll",
   "author": "tellang",
   "files": [
+    "bin/",
     "src/",
     "scripts/",
     "README.md"

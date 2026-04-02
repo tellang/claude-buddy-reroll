@@ -41,6 +41,7 @@ bdy gacha              # 10연차 가챠!
 bdy gacha 20           # 20연차!
 bdy reroll             # 리롤 (인터랙티브 버디 교체)
 bdy dex                # fullscreen 도감 + 상세 패널 + 발견 개체 재적용
+bdy doctor             # profile / dex apply 진단
 bdy restore            # 원래 버디로 복원
 bdy setup              # Bun / 런타임 셋업 복구
 ```
@@ -54,6 +55,7 @@ bdy setup              # Bun / 런타임 셋업 복구
 - 10연차 one-by-one reveal + highlight-aware skip
 - 오른쪽 상세 패널에 animated preview / flavor text / rarity track / form gallery
 - 현재 Claude 계정을 매번 직접 읽고 계정별 프로필 상태를 분리 저장
+- `doctor`로 profile / dex preview vs apply 후보 비교 가능
 - JSON 모드는 유지해서 에이전트/스크립트 자동화도 가능
 
 ### Agent DX (JSON 모드)
@@ -66,6 +68,8 @@ bdy gacha 5 --json --fields species,rarity # 필드 필터링
 bdy reroll --json                          # 후보만 출력
 bdy reroll --json --pick 3                 # 3번 자동 선택 + 패치
 bdy reroll --json --pick 3 --dry-run       # 미리보기만
+bdy doctor --json                          # 현재 profile 진단
+bdy doctor dex 13 --json                   # 특정 도감 항목 preview/apply 비교
 bdy schema                                 # 전체 커맨드 JSON Schema
 bdy schema gacha                           # 특정 커맨드 스키마
 ```
