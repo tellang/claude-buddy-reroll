@@ -2,9 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { findNextHighlightIndex, getRevealAction } from '../src/gacha-reveal.mjs';
 
-test('getRevealAction maps enter, shift+enter, s, and q', () => {
+test('getRevealAction maps enter, s, and q', () => {
   assert.equal(getRevealAction('', { name: 'return', shift: false }), 'next');
-  assert.equal(getRevealAction('', { name: 'return', shift: true }), 'skip');
   assert.equal(getRevealAction('S', { name: 's' }), 'skip');
   assert.equal(getRevealAction('q', { name: 'q' }), 'quit');
 });

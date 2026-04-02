@@ -145,6 +145,5 @@ export function renderSprite(species, eye, hat, frame = 0) {
   const lines = raw.split('\n');
   const hatLine = HAT_SPRITES[hat] ?? HAT_SPRITES.none;
   const body = lines.join('\n').replace('{E}', eye);
-  if (hat === 'none') return body;
   return `${hatLine}\n${body}`;
 }

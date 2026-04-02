@@ -68,6 +68,30 @@ export function getPreferredVariant(entry) {
   return [...variants].sort(compareVariants)[0];
 }
 
+export function getLatestVariant(entry) {
+  const variants = normalizeCollectionEntry(entry).variants;
+  if (variants.length === 0) return null;
+  return [...variants].sort((a, b) => (b.discoveredAt || 0) - (a.discoveredAt || 0))[0];
+}
+
+export function getCollectedRarities(entry) {
+  return Array.from(new Set(normalizeCollectionEntry(entry).variants.map((variant) => variant.bones.rarity)));
+}
+
+export function getShinyVariant(entry) {
+  const variants = normalizeCollectionEntry(entry).variants;
+  return variants.find((variant) => variant.bones.shiny) || null;
+}
+
+export function getRarityCompletion(entry) {
+  const variants = normalizeCollectionEntry(entry).variants;
+  const found = new Set(variants.map((variant) => variant.bones.rarity));
+  return RARITIES.map((rarity) => ({
+    rarity,
+    found: found.has(rarity),
+  }));
+}
+
 export function normalizeCollectionEntry(entry) {
   const variants = Array.isArray(entry?.variants)
     ? entry.variants.map(normalizeVariant).filter(Boolean)

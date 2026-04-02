@@ -18,7 +18,7 @@ import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIE
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { MIN_SUPPORTED_CLAUDE_VERSION, resolveClaudeContext, updatePatchedSalt } from './context.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
-import { addBatchToCollection, renderCollection, getCollection, getPreferredVariant } from './collection.mjs';
+import { addBatchToCollection, getCollection, getLatestVariant, getPreferredVariant, getRarityCompletion, getShinyVariant, renderCollection } from './collection.mjs';
 import { select } from './selector.mjs';
 import { playHatchAnimation } from './animation.mjs';
 import { createInterface, emitKeypressEvents } from 'readline';
@@ -29,6 +29,7 @@ import { compareVersions } from './patcher.mjs';
 import { renderSprite } from './sprites.mjs';
 import { formatEye, formatStars, toTerminalSafeText } from './terminal.mjs';
 import { findNextHighlightIndex, getRevealAction } from './gacha-reveal.mjs';
+import { BUDDY_LORE, wrapLore } from './buddy-lore.mjs';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -380,10 +381,24 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
       '    |  ????    |    ',
       '     \\  ????  /     ',
       '      `------`      ',
+      '                    ',
       '',
       `  ${DIM}Find this species first.${RESET}`,
     ].join('\n');
   }
+
+  const latestVariant = getLatestVariant(entry);
+  const shinyVariant = getShinyVariant(entry);
+  const rarityCompletion = getRarityCompletion(entry)
+    .map(({ rarity, found }) => `${found ? formatStars(RARITY_STARS[rarity]) : '--'} ${rarity}`)
+    .join('  ');
+  const gallery = entry.variants
+    .slice(0, 4)
+    .map((item) => {
+      const shinyMark = item.bones.shiny ? ' ✨' : '';
+      return `${formatStars(RARITY_STARS[item.bones.rarity])} ${formatEye(item.bones.eye)} ${toTerminalSafeText(item.bones.hat)}${shinyMark}`;
+    });
+  while (gallery.length < 4) gallery.push('--');
 
   const stars = formatStars(RARITY_STARS[variant.bones.rarity]);
   const rawSprite = toTerminalSafeText(renderSprite(
@@ -397,6 +412,7 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
     const bob = (tick + index) % 6 === 0 ? ' ' : '';
     return `${' '.repeat(horizontalOffset)}${bob}${line}`;
   });
+  while (sprite.length < 6) sprite.push('');
 
   return [
     `${MAGENTA}${BOLD}  PIXEL PREVIEW${RESET}`,
@@ -406,6 +422,13 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
     ...sprite.map((line) => `  | ${line.padEnd(20)} |`),
     '  +----------------------+',
     `  ${DIM}eye ${formatEye(variant.bones.eye)} • hat ${toTerminalSafeText(variant.bones.hat)}${RESET}`,
+    `  ${DIM}best ${formatStars(RARITY_STARS[variant.bones.rarity])} • latest ${latestVariant ? formatStars(RARITY_STARS[latestVariant.bones.rarity]) : '--'}${RESET}`,
+    `  ${DIM}shiny ${shinyVariant ? 'yes' : 'no'} • forms ${entry.variants.length}${RESET}`,
+    `  ${BOLD}Flavor${RESET}`,
+    ...wrapLore(BUDDY_LORE[species] || '', 26, 2).map((line) => `  ${DIM}${line}${RESET}`),
+    `  ${DIM}rarity ${rarityCompletion}${RESET}`,
+    `  ${DIM}forms:${RESET} ${gallery[0]} | ${gallery[1]}`,
+    `         ${gallery[2]} | ${gallery[3]}`,
   ].join('\n');
 }
 
@@ -430,13 +453,14 @@ async function revealGachaPulls(results) {
   let frame = 0;
   let autoPausedOnHighlight = false;
   let timer = null;
+  let handlingKey = false;
 
   function renderCurrent() {
     const result = results[currentIndex];
     const header = `${BOLD}  Pull ${currentIndex + 1}/${results.length}${RESET}`;
     const note = autoPausedOnHighlight
-      ? `${YELLOW}  Epic+ hit. Enter: continue  Shift+Enter/S: skip rest  Q: summary${RESET}`
-      : `${DIM}  Enter: next  Shift+Enter/S: skip all  Q: summary${RESET}`;
+      ? `${YELLOW}  Epic+ hit. Enter: continue  S: skip rest  Q: summary${RESET}`
+      : `${DIM}  Enter: next  S: skip all  Q: summary${RESET}`;
     const card = renderCard(result, { showSalt: true, index: currentIndex, frame });
     const block = [header, card, note].join('\n');
 
@@ -458,22 +482,20 @@ async function revealGachaPulls(results) {
     timer = null;
   }
 
-  renderCurrent();
-  startAnimation();
-  process.stdout.write(HIDE_CURSOR);
-
   return new Promise((resolve) => {
     emitKeypressEvents(process.stdin);
     if (process.stdin.setRawMode) process.stdin.setRawMode(true);
     process.stdin.resume();
+    process.stdout.write(HIDE_CURSOR);
 
     function cleanup() {
       stopAnimation();
+      clearRenderedBlock(renderedLines + 2);
       if (process.stdin.setRawMode) process.stdin.setRawMode(false);
       process.stdin.pause();
       process.stdin.removeListener('keypress', onKey);
       process.stdout.write(SHOW_CURSOR);
-      process.stdout.write('\n');
+      renderedLines = 0;
     }
 
     function finish() {
@@ -481,18 +503,31 @@ async function revealGachaPulls(results) {
       resolve();
     }
 
-    function advanceOne() {
+    async function showCurrent({ animateHighlight = false } = {}) {
+      const result = results[currentIndex];
+      if (animateHighlight && isEpicOrBetter(result)) {
+        stopAnimation();
+        if (renderedLines > 0) {
+          clearRenderedBlock(renderedLines + 2);
+          renderedLines = 0;
+        }
+        await playHatchAnimation(result.bones);
+      }
+      renderCurrent();
+      startAnimation();
+    }
+
+    async function advanceOne() {
       autoPausedOnHighlight = false;
       currentIndex++;
       if (currentIndex >= results.length) {
         finish();
         return;
       }
-      renderCurrent();
-      startAnimation();
+      await showCurrent({ animateHighlight: true });
     }
 
-    function skipAll() {
+    async function skipAll() {
       const nextHighlight = findNextHighlightIndex(results, currentIndex + 1, isEpicOrBetter);
       if (nextHighlight === -1) {
         finish();
@@ -501,25 +536,30 @@ async function revealGachaPulls(results) {
 
       currentIndex = nextHighlight;
       autoPausedOnHighlight = true;
-      renderCurrent();
-      startAnimation();
+      await showCurrent({ animateHighlight: true });
     }
 
-    function onKey(str, key) {
+    async function onKey(str, key) {
+      if (handlingKey) return;
       const action = getRevealAction(str, key);
       if (!action) return;
+      handlingKey = true;
       if (action === 'quit') {
         finish();
+        handlingKey = false;
         return;
       }
       if (action === 'skip') {
-        skipAll();
+        await skipAll();
+        handlingKey = false;
         return;
       }
-      advanceOne();
+      await advanceOne();
+      handlingKey = false;
     }
 
     process.stdin.on('keypress', onKey);
+    showCurrent({ animateHighlight: isEpicOrBetter(results[currentIndex]) }).catch(() => finish());
   });
 }
 
@@ -925,7 +965,7 @@ async function cmdDex() {
     items: selectorItems,
     columns: 3,
     fullscreen: true,
-    previewHeight: 10,
+    previewHeight: 17,
     animationIntervalMs: 450,
     preview: (item, meta) => buildTamagotchiPreview(item.value, col[item.value], meta.tick),
   });
