@@ -18,7 +18,7 @@ npm i -g claude-buddy-reroll
 설치하면 `buddy`와 `bdy` 명령어가 생겨요.
 
 기본 화면은 스피키 스타일의 리치 터미널 홈으로 시작하고, `dex`는 발견한 개체를 다시 적용할 수 있게 설계돼 있어요.
-지금은 `fullscreen dex`, `animated preview`, `form collection`, `one-by-one gacha reveal`까지 들어가 있어요.
+지금은 `fullscreen dex`, `profile lens chooser`, `animated preview`, `manual form focus`, `form collection`, `one-by-one gacha reveal`까지 들어가 있어요.
 여러 Claude 계정이 있어도 현재 계정을 직접 읽어서 계정별 프로필 상태를 따로 저장해요.
 
 처음 설치할 때 런타임 셋업이 자동으로 Bun과 Claude 연동을 준비해요. 자동 셋업이 실패했거나 `Bun is required` 에러가 보이면 아래를 한 번 실행하세요.
@@ -40,7 +40,7 @@ bdy check              # 내 버디 확인
 bdy gacha              # 10연차 가챠!
 bdy gacha 20           # 20연차!
 bdy reroll             # 리롤 (인터랙티브 버디 교체)
-bdy dex                # fullscreen 도감 + 상세 패널 + 발견 개체 재적용
+bdy dex                # fullscreen 도감 + 프로필 렌즈 + 수동 폼 포커스 + 발견 개체 재적용
 bdy doctor             # profile / dex apply 진단
 bdy restore            # 원래 버디로 복원
 bdy setup              # Bun / 런타임 셋업 복구
@@ -53,8 +53,10 @@ bdy setup              # Bun / 런타임 셋업 복구
 - species-only가 아니라 discovered variant를 우선 재적용하는 dex
 - species progress와 form collection을 분리한 도감
 - 10연차 one-by-one reveal + highlight-aware skip
-- 오른쪽 상세 패널에 animated preview / flavor text / rarity track / form gallery
+- 오른쪽 상세 패널에 animated preview / profile lens / rarity track / form gallery
+- Dex에서 `1-4`로 폼 포커스, `0`으로 auto-cycle 복귀
 - 현재 Claude 계정을 매번 직접 읽고 계정별 프로필 상태를 분리 저장
+- 저장된 프로필 데이터를 별도 렌즈로 열어보고 현재 감지된 계정에 다시 적용 가능
 - `doctor`로 profile / dex preview vs apply 후보 비교 가능
 - JSON 모드는 유지해서 에이전트/스크립트 자동화도 가능
 

@@ -18,7 +18,7 @@ import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIE
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { MIN_SUPPORTED_CLAUDE_VERSION, resolveClaudeContext, updatePatchedSalt } from './context.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
-import { addBatchToCollection, getCollection, getLatestVariant, getPreferredVariant, getRarityCompletion, getShinyVariant, renderCollection, resyncCollection } from './collection.mjs';
+import { addBatchToCollection, getCollection, getPreferredVariant, renderCollection, resyncCollection } from './collection.mjs';
 import { select } from './selector.mjs';
 import { playHatchAnimation } from './animation.mjs';
 import { createInterface, emitKeypressEvents } from 'readline';
@@ -26,11 +26,9 @@ import { findDexBuddy } from './dex.mjs';
 import { renderHomeScreen, renderCheckScreen, renderQuotaSummary, renderSearchStatus } from './ui.mjs';
 import { shouldGuaranteeEventRun } from './event-state.mjs';
 import { compareVersions } from './patcher.mjs';
-import { renderSprite } from './sprites.mjs';
-import { formatEye, formatStars, toTerminalSafeText } from './terminal.mjs';
 import { findNextHighlightIndex, getRevealAction } from './gacha-reveal.mjs';
-import { BUDDY_LORE, wrapLore } from './buddy-lore.mjs';
-import { listKnownProfiles, loadProfileState, saveProfileState } from './profile-state.mjs';
+import { listKnownProfiles, loadProfileState, resolveKnownProfile, saveProfileState } from './profile-state.mjs';
+import { buildDexPreview, buildProfileLensItems, getDexPreviewModel, resolveDexFocusIndex, stepDexFocusIndex } from './dex-ui.mjs';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -121,6 +119,102 @@ function mapResult(result, index = null) {
 
 function formatProfileBadge(userId) {
   return userId === 'anon' ? 'anonymous' : `${userId.slice(0, 8)}...`;
+}
+
+function getDexPreviewState(entry, options = {}) {
+  const species = entry?.variants?.[0]?.bones?.species || entry?.species || 'duck';
+  return getDexPreviewModel(species, entry, options);
+}
+
+function handleDexFocusInput(entry, currentFocusIndex, input) {
+  const previewState = getDexPreviewState(entry, { focusIndex: currentFocusIndex });
+  const variantCount = previewState.orderedVariants.length;
+  if (variantCount === 0) return { handled: false, focusIndex: null };
+
+  if (input === '[') {
+    return {
+      handled: true,
+      focusIndex: stepDexFocusIndex(previewState.focusIndex, variantCount, -1),
+    };
+  }
+
+  if (input === ']') {
+    return {
+      handled: true,
+      focusIndex: stepDexFocusIndex(previewState.focusIndex, variantCount, 1),
+    };
+  }
+
+  if (input === '0') {
+    return { handled: true, focusIndex: null };
+  }
+
+  const slot = Number.parseInt(input, 10);
+  if (Number.isNaN(slot) || slot < 1 || slot > 4) {
+    return { handled: false, focusIndex: currentFocusIndex };
+  }
+
+  return {
+    handled: true,
+    focusIndex: resolveDexFocusIndex(variantCount, previewState.galleryStart + slot - 1),
+  };
+}
+
+async function chooseProfileLens(currentUserId, title = 'Choose Profile Lens', activeProfileLensId = currentUserId) {
+  const items = buildProfileLensItems({
+    detectedUserId: currentUserId,
+    knownProfiles: listKnownProfiles(),
+  });
+  if (items.length <= 1) return currentUserId;
+
+  const choice = await select({
+    title,
+    fullscreen: true,
+    columns: 1,
+    items,
+    selected: Math.max(0, items.findIndex((item) => item.value === activeProfileLensId)),
+    footer: (item) => [
+      `${CYAN}▶${RESET} ${item.label}`,
+      `${DIM}${item.description}${RESET}`,
+      `${DIM}Detected account stays ${formatProfileBadge(currentUserId)} • Enter choose • Esc cancel${RESET}`,
+    ],
+  });
+
+  return choice?.value || null;
+}
+
+function resolveActiveProfileLens(currentUserId, requestedLensId = null) {
+  const known = new Set([currentUserId, ...listKnownProfiles()]);
+  return requestedLensId && known.has(requestedLensId) ? requestedLensId : currentUserId;
+}
+
+async function cmdProfiles(currentUserId, activeProfileLensId = null) {
+  const startingLens = resolveActiveProfileLens(currentUserId, activeProfileLensId);
+  const lens = await chooseProfileLens(currentUserId, 'Profile Lenses', startingLens);
+  if (!lens) return;
+
+  const lensChoice = await select({
+    title: 'Profile Lens Action',
+    fullscreen: true,
+    columns: 1,
+    items: [
+      { label: `${GREEN}Inspect${RESET}`, description: 'Open doctor summary for this profile', value: 'inspect' },
+      { label: `${GREEN}Browse Dex${RESET}`, description: 'Browse dex using this profile data lens', value: 'dex' },
+    ],
+    footer: (item) => [
+      `${CYAN}▶${RESET} ${item.label}  ${DIM}${item.description}${RESET}`,
+      `${DIM}Viewing ${formatProfileBadge(lens)} • Detected account ${formatProfileBadge(currentUserId)}${RESET}`,
+    ],
+  });
+
+  if (!lensChoice) return;
+  if (lensChoice.value === 'inspect') {
+    await cmdDoctor('profile', lens);
+    return lens;
+  }
+
+  await cmdDex({ profileLensId: lens, skipLensPrompt: true });
+  return lens;
 }
 
 // ─── Star check ─────────────────────────────────────
@@ -362,85 +456,13 @@ function requireClaudeContext(options = {}) {
   return context;
 }
 
-function buildTamagotchiPreview(species, entry, tick = 0) {
-  const width = 20;
-  const panel = (title, lines) => [
-    '  +----------------------+',
-    `  | ${title.padEnd(width)} |`,
-    ...lines.map((line) => `  | ${toTerminalSafeText(line).padEnd(width)} |`),
-    '  +----------------------+',
-  ];
-  const fit = (value) => toTerminalSafeText(String(value || '').slice(0, width)).padEnd(width);
-  const formLine = (label, value) => fit(`${label} ${value}`);
-
-  const variant = entry ? getPreferredVariant(entry) : null;
-  if (!variant) {
-    return [
-      `${MAGENTA}${BOLD}  PIXEL PREVIEW${RESET}`,
-      `  ${DIM}undiscovered buddy${RESET}`,
-      ...panel('PROFILE', ['best   --', 'latest --', 'shiny  no', 'forms  0']),
-      ...panel('PREVIEW', [
-        '     .------.      ',
-        '    / ??  ?? \\     ',
-        '   |  ????    |    ',
-        '    \\  ????  /     ',
-        '     `------`      ',
-        '',
-      ]),
-      ...panel('FLAVOR TEXT', ['Find this species', 'in gacha first,', 'then come back to', 'unlock its card.']),
-      ...panel('RARITY TRACK', ['[ ] common', '[ ] uncommon', '[ ] rare', '[ ] epic', '[ ] legendary']),
-      ...panel('FORMS', ['1. --', '2. --', '3. --', '4. --']),
-    ].join('\n');
-  }
-
-  const latestVariant = getLatestVariant(entry);
-  const shinyVariant = getShinyVariant(entry);
-  const rarityTrack = getRarityCompletion(entry).map(({ rarity, found }) =>
-    fit(`${found ? '[x]' : '[ ]'} ${rarity.padEnd(9)} ${formatStars(RARITY_STARS[rarity])}`),
-  );
-  const gallery = entry.variants
-    .slice(0, 4)
-    .map((item, index) => {
-      const tags = [
-        item.salt === variant.salt ? 'BEST' : null,
-        latestVariant && item.salt === latestVariant.salt ? 'NEW' : null,
-        item.bones.shiny ? 'SHN' : null,
-      ].filter(Boolean).join('/');
-      const core = `${formatStars(RARITY_STARS[item.bones.rarity])} ${formatEye(item.bones.eye)} ${toTerminalSafeText(item.bones.hat)}`;
-      return fit(`${index + 1}. ${core}${tags ? ` ${tags}` : ''}`);
-    });
-  while (gallery.length < 4) gallery.push(fit('--'));
-
-  const stars = formatStars(RARITY_STARS[variant.bones.rarity]);
-  const loreLines = wrapLore(BUDDY_LORE[species] || '', 20, 4);
-  const rawSprite = toTerminalSafeText(renderSprite(
-    species,
-    formatEye(variant.bones.eye),
-    variant.bones.hat,
-    tick,
-  )).split('\n');
-  const horizontalOffset = tick % 4 < 2 ? 0 : 1;
-  const sprite = rawSprite.map((line, index) => {
-    const bob = (tick + index) % 6 === 0 ? ' ' : '';
-    return `${' '.repeat(horizontalOffset)}${bob}${line}`;
+function buildTamagotchiPreview(species, entry, options = {}) {
+  return buildDexPreview(species, entry, {
+    focusIndex: options.focusIndex ?? null,
+    tick: options.tick ?? 0,
+    viewedProfileId: options.viewedProfileId ?? options.profileLensId ?? 'anon',
+    currentUserId: options.currentUserId ?? options.detectedProfileId ?? 'anon',
   });
-  while (sprite.length < 6) sprite.push('');
-
-  return [
-    `${MAGENTA}${BOLD}  PIXEL PREVIEW${RESET}`,
-    `  ${BOLD}${species.toUpperCase()}${RESET} ${stars}`,
-    `  ${DIM}${variant.bones.rarity} • x${entry.count}${variant.bones.shiny ? ' • shiny' : ''}${RESET}`,
-    ...panel('PREVIEW', sprite),
-    ...panel('PROFILE', [
-      formLine('eye', `${formatEye(variant.bones.eye)} • ${toTerminalSafeText(variant.bones.hat)}`),
-      formLine('best', `${formatStars(RARITY_STARS[variant.bones.rarity])} ${variant.bones.rarity}`),
-      formLine('latest', latestVariant ? `${formatStars(RARITY_STARS[latestVariant.bones.rarity])} ${latestVariant.bones.rarity}` : '--'),
-      formLine('shiny', `${shinyVariant ? 'yes' : 'no'} • forms ${entry.variants.length}`),
-    ]),
-    ...panel('FLAVOR TEXT', loreLines),
-    ...panel('RARITY TRACK', rarityTrack),
-    ...panel('FORMS', gallery),
-  ].join('\n');
 }
 
 function clearRenderedBlock(lineCount) {
@@ -610,7 +632,7 @@ async function cmdCheck() {
     salt,
     patched: salt !== ORIGINAL_SALT,
     quotaLines: renderQuotaSummary({ used, limit, starred, eventRemaining }),
-    profileLine: `${DIM}Profile${RESET} ${formatProfileBadge(userId)}  ${DIM}Known${RESET} ${listKnownProfiles().length}`,
+    profileLine: `${DIM}Detected${RESET} ${formatProfileBadge(userId)}  ${DIM}Saved${RESET} ${listKnownProfiles().length}`,
     buddyCard: renderCard(buddy, { showSalt: true }),
   }));
 }
@@ -868,19 +890,23 @@ async function cmdRestore() {
   }
 }
 
-async function cmdDex() {
+async function cmdDex(options = {}) {
   if (flags.json) {
+    const context = requireClaudeContext();
+    if (!context) return;
+
     if (flags.pick != null) {
       const idx = flags.pick - 1;
       if (idx < 0 || idx >= SPECIES.length) {
         errorJson('INVALID_PICK', `Pick must be 1-${SPECIES.length}`);
       }
       const targetSpecies = SPECIES[idx];
-      const context = requireClaudeContext({ needsInstall: true, needsSalt: true, needsPatchSupport: true });
-      if (!context) return;
-      const collection = getCollection(context.userId);
+      const applyContext = requireClaudeContext({ needsInstall: true, needsSalt: true, needsPatchSupport: true });
+      if (!applyContext) return;
+      const viewedProfileId = options.profileLensId || context.userId;
+      const collection = getCollection(viewedProfileId);
       const search = findDexBuddy({
-        userId: context.userId,
+        userId: applyContext.userId,
         targetSpecies,
         entry: collection[targetSpecies],
       });
@@ -897,6 +923,8 @@ async function cmdDex() {
           command: 'dex-pick',
           dryRun: true,
           target: targetSpecies,
+          viewedProfile: viewedProfileId,
+          detectedProfile: applyContext.userId,
           found: mapResult(found),
           criteria: search.criteria,
         });
@@ -904,7 +932,7 @@ async function cmdDex() {
       }
 
       // Apply
-      const patchResult = patchSalt(context.install, context.currentSalt, found.salt);
+      const patchResult = patchSalt(applyContext.install, applyContext.currentSalt, found.salt);
       if (!patchResult.success) errorJson('PATCH_FAILED', patchResult.error);
       updatePatchedSalt(found.salt);
       clearSoul();
@@ -913,19 +941,22 @@ async function cmdDex() {
         command: 'dex-pick',
         success: true,
         target: targetSpecies,
+        viewedProfile: viewedProfileId,
+        detectedProfile: applyContext.userId,
         result: mapResult(found),
         criteria: search.criteria,
         patch: { type: patchResult.type, needsSwap: patchResult.needsSwap || false },
       });
       return;
     }
-
     const state = loadState(context.userId);
     const limit = await getDailyLimit(context.userId);
     const starred = await isStarred(context.userId);
     const eventRemaining = getApologyEventRemaining(state);
     output({
       command: 'dex',
+      viewedProfile: options.profileLensId || context.userId,
+      detectedProfile: context.userId,
       species: SPECIES,
       eyes: EYES,
       hats: HATS.filter(h => h !== 'none'),
@@ -939,10 +970,17 @@ async function cmdDex() {
   }
 
   const previewContext = resolveClaudeContext();
+  const profileLensId = options.profileLensId
+    || (options.skipLensPrompt
+      ? previewContext.userId
+      : await chooseProfileLens(previewContext.userId, 'Choose Dex Profile Lens'))
+    || null;
+  if (!profileLensId) return;
 
   // Show collection view
-  console.log(renderCollection(previewContext.userId));
-  console.log(`${DIM}  Current profile: ${formatProfileBadge(previewContext.userId)} | Known profiles: ${listKnownProfiles().length}${RESET}`);
+  console.log(renderCollection(profileLensId));
+  console.log(`${DIM}  Detected Claude account: ${formatProfileBadge(previewContext.userId)}${RESET}`);
+  console.log(`${DIM}  Viewing profile data: ${formatProfileBadge(profileLensId)} | Known profiles: ${listKnownProfiles().length}${RESET}`);
 
   // Also show game info
   console.log(`${BOLD}  Eyes:${RESET} ${EYES.join('  ')}`);
@@ -961,15 +999,17 @@ async function cmdDex() {
     epic: '\x1b[35m', legendary: '\x1b[33;1m',
   };
 
-  const col = getCollection(previewContext.userId);
+  const col = getCollection(profileLensId);
   const selectorItems = SPECIES.map((sp) => {
     const entry = col[sp];
-    const discovered = !!entry;
-    const rColor = discovered ? (RARITY_COLOR_MAP[entry.bestRarity] || '') : '';
-    const stars = discovered ? ` ${RARITY_STARS[entry.bestRarity]}` : '';
+    const previewState = getDexPreviewState(entry);
+    const discovered = !!previewState.focusedVariant;
+    const bestVariant = previewState.preferredVariant;
+    const rColor = discovered && bestVariant ? (RARITY_COLOR_MAP[bestVariant.bones.rarity] || '') : '';
+    const stars = discovered && bestVariant ? ` ${RARITY_STARS[bestVariant.bones.rarity]}` : '';
     return {
       label: discovered ? `${rColor}${sp}${stars}${RESET}` : `${DIM}???${RESET}`,
-      description: discovered ? `${entry.bestRarity} • x${entry.count}` : 'undiscovered',
+      description: discovered ? `${bestVariant.bones.rarity} • ${previewState.orderedVariants.length} forms • x${entry.count}` : 'undiscovered',
       value: sp,
     };
   });
@@ -979,13 +1019,35 @@ async function cmdDex() {
     items: selectorItems,
     columns: 3,
     fullscreen: true,
-    previewHeight: 24,
+    previewHeight: 30,
     animationIntervalMs: 450,
-    preview: (item, meta) => buildTamagotchiPreview(item.value, col[item.value], meta.tick),
-    footer: (item) => [
-      `${CYAN}▶${RESET} ${item.label}  ${item.description ? `${DIM}${item.description}${RESET}` : ''}`,
-      `${DIM}Profile ${formatProfileBadge(previewContext.userId)} • Arrows move • Enter inspect/apply • Esc back${RESET}`,
-    ],
+    state: { focusBySpecies: {} },
+    onKey: (str, key, meta) => {
+      const entry = col[meta.item.value];
+      const currentFocusIndex = meta.state?.focusBySpecies?.[meta.item.value] ?? null;
+      const next = handleDexFocusInput(entry, currentFocusIndex, String(str || '').toLowerCase());
+      if (!next.handled) return null;
+      const focusBySpecies = { ...(meta.state?.focusBySpecies || {}) };
+      if (next.focusIndex == null) delete focusBySpecies[meta.item.value];
+      else focusBySpecies[meta.item.value] = next.focusIndex;
+      return { handled: true, state: { ...(meta.state || {}), focusBySpecies } };
+    },
+    preview: (item, meta) => buildTamagotchiPreview(item.value, col[item.value], {
+      tick: meta.tick,
+      viewedProfileId: profileLensId,
+      detectedUserId: previewContext.userId,
+      focusIndex: meta.state?.focusBySpecies?.[item.value] ?? null,
+    }),
+    footer: (item, meta) => {
+      const previewState = getDexPreviewState(col[item.value], {
+        focusIndex: meta.state?.focusBySpecies?.[item.value] ?? null,
+      });
+      return [
+        `${CYAN}▶${RESET} ${item.label}  ${item.description ? `${DIM}${item.description}${RESET}` : ''}`,
+        `${DIM}Detected ${formatProfileBadge(previewContext.userId)} • Viewing ${formatProfileBadge(profileLensId)}${RESET}`,
+        `${DIM}Arrows move • [ ] cycle • 1-4 visible • 0 reset • Enter inspect/apply • Esc back${previewState.orderedVariants.length > 1 ? '' : ' • one form'}${RESET}`,
+      ];
+    },
   });
 
   if (!choice) return;
@@ -1001,9 +1063,13 @@ async function cmdDex() {
 
   console.log(`\n${BOLD}  Target: ${targetSpecies.toUpperCase()}${RESET}`);
   const preferredVariant = getPreferredVariant(targetEntry);
-  const actionPrompt = preferredVariant?.salt
-    ? `  Apply your collected ${targetSpecies} form? [y/N]: `
-    : `  Recover a matching ${targetSpecies} form from your dex data? [y/N]: `;
+  const actionPrompt = profileLensId === previewContext.userId
+    ? (preferredVariant?.salt
+      ? `  Apply your collected ${targetSpecies} form? [y/N]: `
+      : `  Recover a matching ${targetSpecies} form from your dex data? [y/N]: `)
+    : (preferredVariant?.salt
+      ? `  Apply a ${targetSpecies} form from ${formatProfileBadge(profileLensId)} to the current account? [y/N]: `
+      : `  Recover a matching ${targetSpecies} form from ${formatProfileBadge(profileLensId)}'s dex data? [y/N]: `);
   const confirmApplyFromDex = await ask(actionPrompt);
   if (confirmApplyFromDex.toLowerCase() !== 'y') return;
 
@@ -1278,7 +1344,8 @@ async function cmdDoctor(subCmd, subArg) {
   const context = requireClaudeContext();
   if (!context) return;
   const { userId, install, currentSalt, installVersion } = context;
-  const profile = loadState(userId);
+  const targetProfile = resolveKnownProfile(subCmd === 'profile' ? subArg || '' : '') || userId;
+  const profile = loadState(targetProfile);
 
   if (subCmd === 'dex') {
     const idx = Math.max(1, parseInt(subArg || '0', 10)) - 1;
@@ -1329,10 +1396,11 @@ async function cmdDoctor(subCmd, subArg) {
   const payload = {
     command: 'doctor',
     scope: 'profile',
-    account: userId,
+    account: targetProfile,
     install: install ? { type: install.type, path: install.path, version: installVersion } : null,
     profile: {
       currentProfile: userId,
+      inspectedProfile: targetProfile,
       knownProfiles: listKnownProfiles(),
       bestRarity: profile.bestRarity,
       rollsToday: getRollsToday(profile),
@@ -1347,7 +1415,8 @@ async function cmdDoctor(subCmd, subArg) {
   }
 
   console.log(`\n${BOLD}  PROFILE DOCTOR${RESET}`);
-  console.log(`${DIM}  profile: ${formatProfileBadge(userId)}${RESET}`);
+  console.log(`${DIM}  current: ${formatProfileBadge(userId)}${RESET}`);
+  console.log(`${DIM}  inspecting: ${formatProfileBadge(targetProfile)}${RESET}`);
   console.log(`${DIM}  known profiles: ${listKnownProfiles().join(', ') || '(none)'}${RESET}`);
   console.log(`${DIM}  install: ${installVersion || 'unknown'}${RESET}`);
   console.log(`${DIM}  best rarity: ${profile.bestRarity}${RESET}`);
@@ -1366,10 +1435,15 @@ async function cmdHome() {
     return;
   }
 
+  let activeProfileLensId = null;
+
   while (true) {
     console.log(renderHomeScreen());
     const currentContext = resolveClaudeContext();
-    console.log(`${DIM}Current profile: ${formatProfileBadge(currentContext.userId)} | Known profiles: ${listKnownProfiles().length}${RESET}\n`);
+    const knownProfiles = listKnownProfiles();
+    activeProfileLensId = resolveActiveProfileLens(currentContext.userId, activeProfileLensId);
+    console.log(`${DIM}Detected Claude account: ${formatProfileBadge(currentContext.userId)} | Saved profiles: ${knownProfiles.length}${RESET}`);
+    console.log(`${DIM}Active profile lens: ${formatProfileBadge(activeProfileLensId)}${activeProfileLensId === currentContext.userId ? ' (live)' : ' (saved data)'}${RESET}\n`);
     const choice = await select({
       title: 'Speaki Quick Actions',
       columns: 2,
@@ -1380,6 +1454,7 @@ async function cmdHome() {
         { label: `${GREEN}Reroll${RESET}`, description: '후보 뽑고 바로 적용', value: 'reroll' },
         { label: `${GREEN}Dex${RESET}`, description: '도감 탐색하고 바로 적용', value: 'dex' },
         { label: `${GREEN}Doctor${RESET}`, description: '프로필/도감 진단', value: 'doctor' },
+        { label: `${GREEN}Profiles${RESET}`, description: '저장 프로필 렌즈 선택', value: 'profiles' },
         { label: `${GREEN}Restore${RESET}`, description: '원래 버디로 복원', value: 'restore' },
         { label: `${GREEN}Setup${RESET}`, description: 'Bun / 런타임 셋업 복구', value: 'setup' },
         { label: `${GREEN}Update${RESET}`, description: '업데이트 후 셋업까지 실행', value: 'update' },
@@ -1387,7 +1462,7 @@ async function cmdHome() {
       ],
       footer: (item) => [
         `${CYAN}▶${RESET} ${item.label}  ${item.description ? `${DIM}${item.description}${RESET}` : ''}`,
-        `${DIM}Arrows move • Enter select • Esc back • Profile ${formatProfileBadge(resolveClaudeContext().userId)}${RESET}`,
+        `${DIM}Arrows move • Enter select • Esc back • Lens ${formatProfileBadge(activeProfileLensId)}${RESET}`,
       ],
     });
 
@@ -1407,10 +1482,13 @@ async function cmdHome() {
         await cmdReroll();
         break;
       case 'dex':
-        await cmdDex();
+        await cmdDex({ profileLensId: activeProfileLensId, skipLensPrompt: true });
         break;
       case 'doctor':
-        await cmdDoctor();
+        await cmdDoctor('profile', activeProfileLensId);
+        break;
+      case 'profiles':
+        activeProfileLensId = await cmdProfiles(currentContext.userId, activeProfileLensId) || activeProfileLensId;
         break;
       case 'restore':
         await cmdRestore();

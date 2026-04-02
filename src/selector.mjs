@@ -17,10 +17,12 @@ export function getSelectorRenderLineCount(bodyRows) {
  * @param {number} [options.previewHeight=0] - Reserved preview panel height
  * @param {boolean} [options.fullscreen=false] - Render as fullscreen screen instead of in-place widget
  * @param {number} [options.animationIntervalMs=0] - Optional preview animation interval
- * @param {(item: any, meta: { cursor: number, tick: number }) => string[]} [options.footer] - Optional footer renderer
+ * @param {(item: any, meta: { cursor: number, tick: number, state: any }) => string[]} [options.footer] - Optional footer renderer
+ * @param {any} [options.state] - Mutable selector-local state passed to preview/footer handlers
+ * @param {(str: string, key: any, meta: { cursor: number, item: any, items: any[], tick: number, state: any }) => {handled?: boolean, state?: any, patch?: object, tick?: number}|void} [options.onKey] - Optional custom key handler
  * @returns {Promise<{index: number, value: any} | null>} Selected item or null if cancelled
  */
-export async function select({ title, items, columns = 2, selected = 0, preview = null, previewHeight = 0, fullscreen = false, animationIntervalMs = 0, footer = null }) {
+export async function select({ title, items, columns = 2, selected = 0, preview = null, previewHeight = 0, fullscreen = false, animationIntervalMs = 0, footer = null, state = {}, onKey = null }) {
   if (!process.stdin.isTTY) return null;
 
   const RESET = '\x1b[0m';
@@ -34,15 +36,17 @@ export async function select({ title, items, columns = 2, selected = 0, preview 
 
   let cursor = selected;
   let tick = 0;
+  let selectorState = state;
   const rows = Math.ceil(items.length / columns);
   const colWidth = 22;
   let renderedBodyRows = rows;
   let didFullscreenInit = false;
 
   function render() {
-    const previewText = typeof preview === 'function' ? preview(items[cursor], { cursor, tick }) : '';
+    const meta = { cursor, tick, state: selectorState };
+    const previewText = typeof preview === 'function' ? preview(items[cursor], meta) : '';
     const previewLines = previewText ? String(previewText).split('\n') : [];
-    const footerLines = typeof footer === 'function' ? footer(items[cursor], { cursor, tick }) : null;
+    const footerLines = typeof footer === 'function' ? footer(items[cursor], meta) : null;
     const resolvedFooter = Array.isArray(footerLines) && footerLines.length > 0
       ? footerLines
       : [`${CYAN}▶${RESET} ${items[cursor].label}${items[cursor].description ? `  ${DIM}${items[cursor].description}${RESET}` : ''}`];
@@ -107,9 +111,9 @@ export async function select({ title, items, columns = 2, selected = 0, preview 
     let animationTimer = null;
 
     if (!fullscreen) {
-      const initialPreviewText = typeof preview === 'function' ? preview(items[cursor], { cursor, tick }) : '';
+      const initialPreviewText = typeof preview === 'function' ? preview(items[cursor], { cursor, tick, state: selectorState }) : '';
       const initialPreviewLines = initialPreviewText ? String(initialPreviewText).split('\n') : [];
-      const initialFooter = typeof footer === 'function' ? footer(items[cursor], { cursor, tick }) : null;
+      const initialFooter = typeof footer === 'function' ? footer(items[cursor], { cursor, tick, state: selectorState }) : null;
       const resolvedFooter = Array.isArray(initialFooter) && initialFooter.length > 0 ? initialFooter : [''];
       const totalLines = getSelectorRenderLineCount(Math.max(rows, previewHeight, initialPreviewLines.length)) + (resolvedFooter.length - 1);
       for (let i = 0; i < totalLines; i++) process.stdout.write('\n');
@@ -131,14 +135,37 @@ export async function select({ title, items, columns = 2, selected = 0, preview 
     function cleanup() {
       if (process.stdin.setRawMode) process.stdin.setRawMode(false);
       process.stdin.pause();
-      process.stdin.removeListener('keypress', onKey);
+      process.stdin.removeListener('keypress', handleKeypress);
       if (animationTimer) clearInterval(animationTimer);
       if (fullscreen) process.stdout.write(CLEAR);
       process.stdout.write(SHOW_CURSOR);
     }
 
-    function onKey(str, key) {
+    function handleKeypress(str, key) {
       if (!key) return;
+
+      if (typeof onKey === 'function') {
+        const custom = onKey(str, key, {
+          cursor,
+          item: items[cursor],
+          items,
+          tick,
+          state: selectorState,
+        });
+        if (custom) {
+          if (Object.prototype.hasOwnProperty.call(custom, 'state')) {
+            selectorState = custom.state;
+          } else if (custom.patch && selectorState && typeof selectorState === 'object') {
+            selectorState = { ...selectorState, ...custom.patch };
+          }
+          if (typeof custom.tick === 'number') tick = custom.tick;
+          if (custom.handled) {
+            tick++;
+            render();
+            return;
+          }
+        }
+      }
 
       if (key.name === 'up') {
         cursor = (cursor - columns + items.length) % items.length;
@@ -165,6 +192,6 @@ export async function select({ title, items, columns = 2, selected = 0, preview 
       }
     }
 
-    process.stdin.on('keypress', onKey);
+    process.stdin.on('keypress', handleKeypress);
   });
 }

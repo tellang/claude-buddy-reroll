@@ -64,9 +64,9 @@ function findNativeBinary() {
   for (const p of candidates) {
     if (existsSync(p)) return p;
   }
-  // Try `which`
+  const locatorCommand = process.platform === 'win32' ? 'where.exe claude' : 'which claude';
   try {
-    const out = execSync('which claude', { encoding: 'utf-8' }).trim();
+    const out = execSync(locatorCommand, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
     if (out && existsSync(out) && !out.includes('node_modules')) return out;
   } catch {}
   return null;
