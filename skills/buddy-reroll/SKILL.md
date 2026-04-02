@@ -18,7 +18,7 @@ allowed-tools: [Bash, Read, Glob, AskUserQuestion]
 > 쪼아요~! 스피키 처음이에요? 셋업 한번만 하면 돼요!
 
 ```bash
-node {SKILL_DIR}/scripts/install-hook.mjs
+node ${CLAUDE_PLUGIN_ROOT}/scripts/install-hook.mjs
 ```
 
 ## 가챠 플로우 (핵심)
@@ -27,7 +27,7 @@ node {SKILL_DIR}/scripts/install-hook.mjs
 
 ```bash
 # 포그라운드 — 가챠
-echo "q" | node {SKILL_DIR}/src/cli.mjs gacha 5
+echo "q" | node ${CLAUDE_PLUGIN_ROOT}/src/cli.mjs gacha 5
 
 # 백그라운드 (run_in_background=true) — gh 체크
 gh auth status 2>&1 | head -3
@@ -130,26 +130,26 @@ Epic/Legendary 선택 시:
 
 ### "내 버디" / "buddy check"
 ```bash
-node {SKILL_DIR}/src/cli.mjs check
+node ${CLAUDE_PLUGIN_ROOT}/src/cli.mjs check
 ```
 결과 보여주고 스피키가 한마디:
 > 이게 지금 당신의 버디예요~! 쪼아요!
 
 ### "도감" / "buddy dex"
 ```bash
-node {SKILL_DIR}/src/cli.mjs dex
+node ${CLAUDE_PLUGIN_ROOT}/src/cli.mjs dex
 ```
 > 스피키가 도감 보여줄게요~! 얼마나 모았나 볼까요?
 
 ### "복원" / "restore"
 ```bash
-node {SKILL_DIR}/src/cli.mjs restore
+node ${CLAUDE_PLUGIN_ROOT}/src/cli.mjs restore
 ```
 > 원래 버디로 돌아갔어요~ 다시 시작하고 `/buddy` 치면 돼요!
 
 ### "셋업" / "setup"
 ```bash
-node {SKILL_DIR}/scripts/install-hook.mjs
+node ${CLAUDE_PLUGIN_ROOT}/scripts/install-hook.mjs
 ```
 
 ## 제한
