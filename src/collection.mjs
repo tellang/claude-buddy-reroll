@@ -140,7 +140,7 @@ export function renderCollection() {
   for (const r of RARITIES) {
     const count = Object.values(col).filter(e => e.bestRarity === r).length;
     const color = RARITY_COLOR[r];
-    lines.push(`    ${color}${RARITY_STARS[r].padEnd(6)}${RESET} ${r.padEnd(10)} ${count > 0 ? `x${count}` : DIM + '-' + RESET}`);
+    lines.push(`    ${color}${RARITY_STARS[r].padEnd(6)}${RESET} ${r.padEnd(10)} ${count > 0 ? `x${count}` : `${DIM}x0${RESET}`}`);
   }
 
   lines.push('');

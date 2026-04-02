@@ -761,6 +761,21 @@ function cmdSchema(subCmd) {
         },
       },
     },
+    update: {
+      command: 'update',
+      description: 'Self-update to latest version',
+      args: [],
+      flags: ['--json'],
+      response: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', const: 'update' },
+          previous: { type: 'string' },
+          current: { type: 'string' },
+          updated: { type: 'boolean' },
+        },
+      },
+    },
   };
 
   const definitions = {
@@ -808,6 +823,40 @@ function cmdSchema(subCmd) {
   }
 }
 
+async function cmdUpdate() {
+  const { execSync } = await import('child_process');
+
+  if (flags.json) {
+    try {
+      log('Checking for updates...');
+      const current = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8')).version;
+      execSync('npm install -g claude-buddy-reroll@latest', { stdio: 'pipe' });
+      const updated = execSync('npm info claude-buddy-reroll version', { encoding: 'utf-8' }).trim();
+      output({ command: 'update', previous: current, current: updated, updated: current !== updated });
+    } catch (e) {
+      errorJson('UPDATE_FAILED', e.message);
+    }
+    return;
+  }
+
+  console.log(`\n${MAGENTA}${BOLD}  쪼아요~! 스피키가 업데이트 확인할게요!${RESET}\n`);
+  try {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
+    console.log(`${DIM}  현재 버전: v${pkg.version}${RESET}`);
+    console.log(`${DIM}  업데이트 중...${RESET}\n`);
+    execSync('npm install -g claude-buddy-reroll@latest', { stdio: 'inherit' });
+    const newVer = execSync('npm info claude-buddy-reroll version', { encoding: 'utf-8' }).trim();
+    if (newVer !== pkg.version) {
+      console.log(`\n${GREEN}  ✓ v${pkg.version} → v${newVer} 업데이트 완료! 쪼아요~!${RESET}\n`);
+    } else {
+      console.log(`\n${GREEN}  ✓ 이미 최신이에요! (v${pkg.version}) 쪼아요~${RESET}\n`);
+    }
+  } catch (e) {
+    console.log(`\n${RED}  ✗ 업데이트 실패: ${e.message}${RESET}`);
+    console.log(`${DIM}  수동: npm install -g claude-buddy-reroll@latest${RESET}\n`);
+  }
+}
+
 function showHelp() {
   console.log(`
 ${MAGENTA}${BOLD}  쪼아요~! 스피키의 버디 가챠예요!${RESET}
@@ -820,6 +869,7 @@ ${BOLD}  명령어${RESET}
     ${CYAN}bdy restore${RESET}            원래 버디로 복원
     ${CYAN}bdy dex${RESET}                도감 구경
     ${CYAN}bdy schema${RESET} [cmd]       JSON 스키마 보기
+    ${CYAN}bdy update${RESET}             최신 버전으로 업데이트
 
 ${BOLD}  에이전트 플래그${RESET}
     ${GREEN}--json${RESET}                 JSON 출력 (로그는 stderr)
@@ -844,6 +894,7 @@ switch (cmd) {
   case 'restore': await cmdRestore(); break;
   case 'dex':     await cmdDex(); break;
   case 'schema':  cmdSchema(args[0]); break;
+  case 'update':  await cmdUpdate(); break;
   case '--help': case '-h': case 'help': showHelp(); break;
   default: showHelp(); break;
 }
