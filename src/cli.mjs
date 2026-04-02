@@ -21,13 +21,14 @@ import { renderCard, renderMiniCard } from './display.mjs';
 import { addBatchToCollection, renderCollection, getCollection, getPreferredVariant } from './collection.mjs';
 import { select } from './selector.mjs';
 import { playHatchAnimation } from './animation.mjs';
-import { createInterface } from 'readline';
+import { createInterface, emitKeypressEvents } from 'readline';
 import { findDexBuddy } from './dex.mjs';
 import { renderHomeScreen, renderCheckScreen, renderQuotaSummary, renderSearchStatus } from './ui.mjs';
 import { shouldGuaranteeEventRun } from './event-state.mjs';
 import { compareVersions } from './patcher.mjs';
 import { renderSprite } from './sprites.mjs';
 import { formatEye, formatStars, toTerminalSafeText } from './terminal.mjs';
+import { findNextHighlightIndex, getRevealAction } from './gacha-reveal.mjs';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -408,6 +409,120 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
   ].join('\n');
 }
 
+function clearRenderedBlock(lineCount) {
+  if (lineCount <= 0) return;
+  process.stdout.write(`\x1b[${lineCount}A`);
+  for (let i = 0; i < lineCount; i++) {
+    process.stdout.write('\x1b[2K');
+    if (i < lineCount - 1) process.stdout.write('\x1b[1B');
+  }
+  if (lineCount > 1) process.stdout.write(`\x1b[${lineCount - 1}A`);
+  process.stdout.write('\r');
+}
+
+async function revealGachaPulls(results) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+
+  const HIDE_CURSOR = '\x1b[?25l';
+  const SHOW_CURSOR = '\x1b[?25h';
+  let currentIndex = 0;
+  let renderedLines = 0;
+  let frame = 0;
+  let autoPausedOnHighlight = false;
+  let timer = null;
+
+  function renderCurrent() {
+    const result = results[currentIndex];
+    const header = `${BOLD}  Pull ${currentIndex + 1}/${results.length}${RESET}`;
+    const note = autoPausedOnHighlight
+      ? `${YELLOW}  Epic+ hit. Enter: continue  Shift+Enter/S: skip rest  Q: summary${RESET}`
+      : `${DIM}  Enter: next  Shift+Enter/S: skip all  Q: summary${RESET}`;
+    const card = renderCard(result, { showSalt: true, index: currentIndex, frame });
+    const block = [header, card, note].join('\n');
+
+    if (renderedLines > 0) clearRenderedBlock(renderedLines);
+    process.stdout.write(block);
+    renderedLines = block.split('\n').length;
+  }
+
+  function startAnimation() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(() => {
+      frame++;
+      renderCurrent();
+    }, 450);
+  }
+
+  function stopAnimation() {
+    if (timer) clearInterval(timer);
+    timer = null;
+  }
+
+  renderCurrent();
+  startAnimation();
+  process.stdout.write(HIDE_CURSOR);
+
+  return new Promise((resolve) => {
+    emitKeypressEvents(process.stdin);
+    if (process.stdin.setRawMode) process.stdin.setRawMode(true);
+    process.stdin.resume();
+
+    function cleanup() {
+      stopAnimation();
+      if (process.stdin.setRawMode) process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stdin.removeListener('keypress', onKey);
+      process.stdout.write(SHOW_CURSOR);
+      process.stdout.write('\n');
+    }
+
+    function finish() {
+      cleanup();
+      resolve();
+    }
+
+    function advanceOne() {
+      autoPausedOnHighlight = false;
+      currentIndex++;
+      if (currentIndex >= results.length) {
+        finish();
+        return;
+      }
+      renderCurrent();
+      startAnimation();
+    }
+
+    function skipAll() {
+      const nextHighlight = findNextHighlightIndex(results, currentIndex + 1, isEpicOrBetter);
+      if (nextHighlight === -1) {
+        finish();
+        return;
+      }
+
+      currentIndex = nextHighlight;
+      autoPausedOnHighlight = true;
+      renderCurrent();
+      startAnimation();
+    }
+
+    function onKey(str, key) {
+      const action = getRevealAction(str, key);
+      if (!action) return;
+      if (action === 'quit') {
+        finish();
+        return;
+      }
+      if (action === 'skip') {
+        skipAll();
+        return;
+      }
+      advanceOne();
+    }
+
+    process.stdin.on('keypress', onKey);
+  });
+}
+
 // ─── Commands ───────────────────────────────────────
 
 async function cmdCheck() {
@@ -490,14 +605,7 @@ async function cmdGacha(count = 10) {
   const rawResults = multiRoll(userId, rollCount);
   const results = maybeApplyEventGuarantee(state, allowance, userId, rawResults);
 
-  // Best pull
-  const best = results.reduce((a, b) =>
-    RARITY_ORDER[a.bones.rarity] >= RARITY_ORDER[b.bones.rarity] ? a : b
-  );
-  const bestIdx = results.indexOf(best);
-
-  await playHatchAnimation(best.bones);
-  console.log(renderCard(best, { showSalt: true, index: bestIdx }));
+  await revealGachaPulls(results);
 
   console.log(`${BOLD}  Pull summary${RESET}`);
   for (let i = 0; i < results.length; i++) {
@@ -515,6 +623,9 @@ async function cmdGacha(count = 10) {
   addBatchToCollection(results);
 
   // Check upgrade → star request
+  const best = results.reduce((a, b) =>
+    RARITY_ORDER[a.bones.rarity] >= RARITY_ORDER[b.bones.rarity] ? a : b
+  );
   if (isUpgrade(state.bestRarity || 'common', best.bones.rarity)) {
     state.bestRarity = best.bones.rarity;
     saveState(state);
