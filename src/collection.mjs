@@ -187,6 +187,13 @@ export function getCollection(ownerId = null) {
   return ingestCollectionResults(profile.collection || {}, [], ownerId);
 }
 
+export function resyncCollection(ownerId = null) {
+  const profile = loadProfileState(ownerId || 'anon');
+  profile.collection = ingestCollectionResults(profile.collection || {}, [], ownerId);
+  saveProfileState(ownerId || 'anon', profile);
+  return profile.collection;
+}
+
 export function getCollectionStats(ownerId = null) {
   const col = getCollection(ownerId);
   const collected = Object.keys(col).length;

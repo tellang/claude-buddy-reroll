@@ -19,6 +19,7 @@ npm i -g claude-buddy-reroll
 
 기본 화면은 스피키 스타일의 리치 터미널 홈으로 시작하고, `dex`는 발견한 개체를 다시 적용할 수 있게 설계돼 있어요.
 지금은 `fullscreen dex`, `animated preview`, `form collection`, `one-by-one gacha reveal`까지 들어가 있어요.
+여러 Claude 계정이 있어도 현재 계정을 직접 읽어서 계정별 프로필 상태를 따로 저장해요.
 
 처음 설치할 때 런타임 셋업이 자동으로 Bun과 Claude 연동을 준비해요. 자동 셋업이 실패했거나 `Bun is required` 에러가 보이면 아래를 한 번 실행하세요.
 
@@ -27,6 +28,7 @@ bdy setup
 ```
 
 `bdy update`도 업데이트 후 같은 셋업을 자동으로 다시 확인해요.
+그리고 현재 계정 기준으로 도감 정합성도 다시 맞춰요.
 
 ---
 
@@ -51,6 +53,7 @@ bdy setup              # Bun / 런타임 셋업 복구
 - species progress와 form collection을 분리한 도감
 - 10연차 one-by-one reveal + highlight-aware skip
 - 오른쪽 상세 패널에 animated preview / flavor text / rarity track / form gallery
+- 현재 Claude 계정을 매번 직접 읽고 계정별 프로필 상태를 분리 저장
 - JSON 모드는 유지해서 에이전트/스크립트 자동화도 가능
 
 ### Agent DX (JSON 모드)

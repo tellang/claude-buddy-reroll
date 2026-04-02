@@ -25,6 +25,11 @@ function readRootState() {
   return {};
 }
 
+export function listKnownProfiles() {
+  const root = readRootState();
+  return Object.keys(root.profiles || {}).sort();
+}
+
 function migrateLegacyIntoProfile(root, userId) {
   const hasLegacy = LEGACY_KEYS.some((key) => key in root);
   if (!hasLegacy) return;

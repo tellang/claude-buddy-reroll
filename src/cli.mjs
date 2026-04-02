@@ -18,7 +18,7 @@ import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIE
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { MIN_SUPPORTED_CLAUDE_VERSION, resolveClaudeContext, updatePatchedSalt } from './context.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
-import { addBatchToCollection, getCollection, getLatestVariant, getPreferredVariant, getRarityCompletion, getShinyVariant, renderCollection } from './collection.mjs';
+import { addBatchToCollection, getCollection, getLatestVariant, getPreferredVariant, getRarityCompletion, getShinyVariant, renderCollection, resyncCollection } from './collection.mjs';
 import { select } from './selector.mjs';
 import { playHatchAnimation } from './animation.mjs';
 import { createInterface, emitKeypressEvents } from 'readline';
@@ -30,7 +30,7 @@ import { renderSprite } from './sprites.mjs';
 import { formatEye, formatStars, toTerminalSafeText } from './terminal.mjs';
 import { findNextHighlightIndex, getRevealAction } from './gacha-reveal.mjs';
 import { BUDDY_LORE, wrapLore } from './buddy-lore.mjs';
-import { loadProfileState, saveProfileState } from './profile-state.mjs';
+import { listKnownProfiles, loadProfileState, saveProfileState } from './profile-state.mjs';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -117,6 +117,10 @@ function mapResult(result, index = null) {
     shiny: result.bones.shiny,
     stats: result.bones.stats,
   };
+}
+
+function formatProfileBadge(userId) {
+  return userId === 'anon' ? 'anonymous' : `${userId.slice(0, 8)}...`;
 }
 
 // ─── Star check ─────────────────────────────────────
@@ -366,14 +370,15 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
     ...lines.map((line) => `  | ${toTerminalSafeText(line).padEnd(width)} |`),
     '  +----------------------+',
   ];
-  const padSlot = (value) => value.padEnd(10);
+  const fit = (value) => toTerminalSafeText(String(value || '').slice(0, width)).padEnd(width);
+  const formLine = (label, value) => fit(`${label} ${value}`);
 
   const variant = entry ? getPreferredVariant(entry) : null;
   if (!variant) {
     return [
       `${MAGENTA}${BOLD}  PIXEL PREVIEW${RESET}`,
       `  ${DIM}undiscovered buddy${RESET}`,
-      ...panel('PROFILE', ['best   --', 'latest --', 'shiny  --', 'forms  0']),
+      ...panel('PROFILE', ['best   --', 'latest --', 'shiny  no', 'forms  0']),
       ...panel('PREVIEW', [
         '     .------.      ',
         '    / ??  ?? \\     ',
@@ -383,24 +388,28 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
         '',
       ]),
       ...panel('FLAVOR TEXT', ['Find this species', 'in gacha first,', 'then come back to', 'unlock its card.']),
-      ...panel('RARITY TRACK', ['-- common  -- uncommon', '-- rare    -- epic', '-- legendary']),
-      ...panel('FORMS', [`${padSlot('--')} ${padSlot('--')}`, `${padSlot('--')} ${padSlot('--')}`]),
+      ...panel('RARITY TRACK', ['[ ] common', '[ ] uncommon', '[ ] rare', '[ ] epic', '[ ] legendary']),
+      ...panel('FORMS', ['1. --', '2. --', '3. --', '4. --']),
     ].join('\n');
   }
 
   const latestVariant = getLatestVariant(entry);
   const shinyVariant = getShinyVariant(entry);
-  const rarityCompletion = getRarityCompletion(entry)
-    .map(({ rarity, found }) => `${found ? formatStars(RARITY_STARS[rarity]) : '--'} ${rarity}`)
-    .join('  ');
+  const rarityTrack = getRarityCompletion(entry).map(({ rarity, found }) =>
+    fit(`${found ? '[x]' : '[ ]'} ${rarity.padEnd(9)} ${formatStars(RARITY_STARS[rarity])}`),
+  );
   const gallery = entry.variants
     .slice(0, 4)
-    .map((item) => {
-      const shinyMark = item.bones.shiny ? ' ✨' : '';
-      return `${formatStars(RARITY_STARS[item.bones.rarity])} ${formatEye(item.bones.eye)} ${toTerminalSafeText(item.bones.hat)}${shinyMark}`.slice(0, 10);
+    .map((item, index) => {
+      const tags = [
+        item.salt === variant.salt ? 'BEST' : null,
+        latestVariant && item.salt === latestVariant.salt ? 'NEW' : null,
+        item.bones.shiny ? 'SHN' : null,
+      ].filter(Boolean).join('/');
+      const core = `${formatStars(RARITY_STARS[item.bones.rarity])} ${formatEye(item.bones.eye)} ${toTerminalSafeText(item.bones.hat)}`;
+      return fit(`${index + 1}. ${core}${tags ? ` ${tags}` : ''}`);
     });
-  while (gallery.length < 4) gallery.push('--');
-  const rarityTrack = getRarityCompletion(entry).map(({ rarity, found }) => `${found ? formatStars(RARITY_STARS[rarity]) : '--'} ${rarity}`);
+  while (gallery.length < 4) gallery.push(fit('--'));
 
   const stars = formatStars(RARITY_STARS[variant.bones.rarity]);
   const loreLines = wrapLore(BUDDY_LORE[species] || '', 20, 4);
@@ -423,14 +432,14 @@ function buildTamagotchiPreview(species, entry, tick = 0) {
     `  ${DIM}${variant.bones.rarity} • x${entry.count}${variant.bones.shiny ? ' • shiny' : ''}${RESET}`,
     ...panel('PREVIEW', sprite),
     ...panel('PROFILE', [
-      `eye    ${formatEye(variant.bones.eye)} • ${toTerminalSafeText(variant.bones.hat)}`,
-      `best   ${formatStars(RARITY_STARS[variant.bones.rarity])}`,
-      `latest ${latestVariant ? formatStars(RARITY_STARS[latestVariant.bones.rarity]) : '--'}`,
-      `shiny  ${shinyVariant ? 'yes' : 'no'} • forms ${entry.variants.length}`,
+      formLine('eye', `${formatEye(variant.bones.eye)} • ${toTerminalSafeText(variant.bones.hat)}`),
+      formLine('best', `${formatStars(RARITY_STARS[variant.bones.rarity])} ${variant.bones.rarity}`),
+      formLine('latest', latestVariant ? `${formatStars(RARITY_STARS[latestVariant.bones.rarity])} ${latestVariant.bones.rarity}` : '--'),
+      formLine('shiny', `${shinyVariant ? 'yes' : 'no'} • forms ${entry.variants.length}`),
     ]),
     ...panel('FLAVOR TEXT', loreLines),
-    ...panel('RARITY TRACK', [`${rarityTrack[0]}  ${rarityTrack[1]}`, `${rarityTrack[2]}  ${rarityTrack[3]}`, `${rarityTrack[4]}`]),
-    ...panel('FORMS', [`${padSlot(gallery[0])} ${padSlot(gallery[1])}`, `${padSlot(gallery[2])} ${padSlot(gallery[3])}`]),
+    ...panel('RARITY TRACK', rarityTrack),
+    ...panel('FORMS', gallery),
   ].join('\n');
 }
 
@@ -583,6 +592,7 @@ async function cmdCheck() {
     output({
       command: 'check',
       account: userId.slice(0, 8),
+      profiles: listKnownProfiles(),
       install: install ? { type: install.type, path: install.path } : null,
       salt: salt,
       patched: salt !== ORIGINAL_SALT,
@@ -602,6 +612,7 @@ async function cmdCheck() {
     quotaLines: renderQuotaSummary({ used, limit, starred, eventRemaining }),
     buddyCard: renderCard(buddy, { showSalt: true }),
   }));
+  console.log(`${DIM}Profile: ${formatProfileBadge(userId)} | Known profiles: ${listKnownProfiles().length}${RESET}\n`);
 }
 
 async function cmdGacha(count = 10) {
@@ -1177,6 +1188,7 @@ function cmdSchema(subCmd) {
 
 async function cmdUpdate() {
   const { execSync } = await import('child_process');
+  const context = resolveClaudeContext();
 
   if (flags.json) {
     try {
@@ -1184,8 +1196,9 @@ async function cmdUpdate() {
       const current = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8')).version;
       execSync('npm install -g claude-buddy-reroll@latest', { stdio: 'pipe' });
       runRuntimeSetup({ stdio: 'pipe' });
+      resyncCollection(context.userId);
       const updated = execSync('npm info claude-buddy-reroll version', { encoding: 'utf-8' }).trim();
-      output({ command: 'update', previous: current, current: updated, updated: current !== updated, setup: true });
+      output({ command: 'update', previous: current, current: updated, updated: current !== updated, setup: true, resynced: true });
     } catch (e) {
       errorJson('UPDATE_FAILED', e.message);
     }
@@ -1200,11 +1213,13 @@ async function cmdUpdate() {
     execSync('npm install -g claude-buddy-reroll@latest', { stdio: 'inherit' });
     console.log(`\n${DIM}  런타임 셋업 확인 중...${RESET}`);
     runRuntimeSetup({ stdio: 'inherit' });
+    console.log(`${DIM}  현재 계정 도감 정합성 재검증 중...${RESET}`);
+    resyncCollection(context.userId);
     const newVer = execSync('npm info claude-buddy-reroll version', { encoding: 'utf-8' }).trim();
     if (newVer !== pkg.version) {
-      console.log(`\n${GREEN}  ✓ v${pkg.version} → v${newVer} 업데이트 완료! 쪼아요~!${RESET}\n`);
+      console.log(`\n${GREEN}  ✓ v${pkg.version} → v${newVer} 업데이트 완료! 도감도 갱신했어요.${RESET}\n`);
     } else {
-      console.log(`\n${GREEN}  ✓ 이미 최신이에요! (v${pkg.version}) 쪼아요~${RESET}\n`);
+      console.log(`\n${GREEN}  ✓ 이미 최신이에요! (v${pkg.version}) 도감 정합성만 다시 맞췄어요.${RESET}\n`);
     }
   } catch (e) {
     console.log(`\n${RED}  ✗ 업데이트 실패: ${e.message}${RESET}`);
@@ -1218,10 +1233,12 @@ function runRuntimeSetup({ stdio = 'inherit' } = {}) {
 }
 
 async function cmdSetup() {
+  const context = resolveClaudeContext();
   if (flags.json) {
     try {
       runRuntimeSetup({ stdio: 'pipe' });
-      output({ command: 'setup', success: true });
+      resyncCollection(context.userId);
+      output({ command: 'setup', success: true, resynced: true });
     } catch (error) {
       errorJson('SETUP_FAILED', error?.message || String(error));
     }
@@ -1231,6 +1248,8 @@ async function cmdSetup() {
   console.log(`\n${MAGENTA}${BOLD}  쪼아요~! 런타임 셋업 확인할게요.${RESET}\n`);
   try {
     runRuntimeSetup({ stdio: 'inherit' });
+    console.log(`${DIM}  현재 계정 도감 정합성 재검증 중...${RESET}`);
+    resyncCollection(context.userId);
     console.log(`\n${GREEN}  ✓ setup complete${RESET}\n`);
   } catch (error) {
     console.log(`\n${RED}  ✗ setup failed: ${error?.message || String(error)}${RESET}\n`);
