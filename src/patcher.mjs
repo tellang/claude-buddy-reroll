@@ -130,8 +130,10 @@ function patchNative(filePath, currentSalt, newSalt, backupPath) {
     return { success: false, error: 'SALT not found in binary' };
   }
 
-  // native binary may be locked if running — write to temp then instruct swap
-  const patchedPath = filePath + '.patched';
+  // native binary may be locked if running — write to swap path that buddy-swap.sh expects
+  const dir = resolve(filePath, '..');
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  const patchedPath = resolve(dir, `claude-patched${ext}`);
   writeFileSync(patchedPath, buf);
   return {
     success: true,

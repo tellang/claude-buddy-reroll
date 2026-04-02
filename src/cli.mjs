@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS } from './engine.mjs';
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
-import { resolveClaudeContext } from './context.mjs';
+import { resolveClaudeContext, updatePatchedSalt } from './context.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
 import { addBatchToCollection, renderCollection } from './collection.mjs';
 import { playHatchAnimation } from './animation.mjs';
@@ -372,6 +372,9 @@ async function cmdReroll() {
     console.log(`\n${RED}  ✗ Patch failed: ${result.error}${RESET}\n`);
     return;
   }
+
+  // Save new salt so subsequent patches can find it
+  updatePatchedSalt(selected.salt);
 
   // Clear soul (name/personality) so it regenerates
   const soulResult = clearSoul();

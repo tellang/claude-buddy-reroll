@@ -68,4 +68,12 @@ export function saveInstallContext() {
   return { ...context, path: INSTALL_CONTEXT_PATH };
 }
 
+export function updatePatchedSalt(newSalt) {
+  const stored = readJson(INSTALL_CONTEXT_PATH) || {};
+  stored.currentSalt = newSalt;
+  stored.patchedAt = new Date().toISOString();
+  mkdirSync(CLAUDE_DIR, { recursive: true });
+  writeFileSync(INSTALL_CONTEXT_PATH, JSON.stringify(stored, null, 2), 'utf-8');
+}
+
 export { INSTALL_CONTEXT_PATH };
