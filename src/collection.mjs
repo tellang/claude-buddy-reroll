@@ -133,6 +133,7 @@ export function renderCollection() {
   }
 
   lines.push('');
+  lines.push(`  ${DIM}Pick a species number to roll for it!${RESET}`);
   lines.push(`  ${DIM}Total pulls: ${stats.totalPulls} | Shinies: ${stats.shinies}${RESET}`);
 
   // Rarity breakdown

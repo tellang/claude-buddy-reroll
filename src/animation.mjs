@@ -215,9 +215,14 @@ export async function playHatchAnimation(bones) {
     const rarityStars = { common: '★', uncommon: '★★', rare: '★★★', epic: '★★★★', legendary: '★★★★★' };
     const stars = rarityStars[rarity] || '';
 
+    // Epic/Legendary get extra sparkle lines before reveal
+    if (rarity === 'epic' || rarity === 'legendary') {
+      out.write(`${color}  ·  ✧  ·  ✧  ·  ✧  ·${RESET}\n`);
+    }
+
     if (rarity === 'legendary') {
       // Slow typewriter reveal for legendary
-      const title = `  ${species.toUpperCase()}  ${stars}${shinyTag}`;
+      const title = `  ✦ ${species.toUpperCase()} ${stars} ✦${shinyTag}`;
       out.write(color);
       for (const ch of title) {
         out.write(ch);
@@ -225,8 +230,16 @@ export async function playHatchAnimation(bones) {
       }
       out.write(RESET + '\n');
     } else {
-      out.write(`${color}  ${species.toUpperCase()}  ${stars}${shinyTag}${RESET}\n`);
+      out.write(`${color}  ✦ ${species.toUpperCase()} ${stars} ✦${shinyTag}${RESET}\n`);
     }
+
+    // Epic/Legendary get extra sparkle lines after reveal
+    if (rarity === 'epic' || rarity === 'legendary') {
+      out.write(`${color}  ·  ✧  ·  ✧  ·  ✧  ·${RESET}\n`);
+    }
+
+    // Brief pause so the reveal is visible before caller prints the card
+    await sleep(500);
 
   } finally {
     // Always restore cursor

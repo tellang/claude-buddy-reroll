@@ -12,7 +12,7 @@ if (process.platform === 'win32') {
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import { roll, multiRoll, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIES, RARITIES, RARITY_WEIGHTS } from './engine.mjs';
+import { roll, multiRoll, randomSalt, ORIGINAL_SALT, EYES, HATS, STATS, RARITY_STARS, SPECIES, RARITIES, RARITY_WEIGHTS } from './engine.mjs';
 import { patchSalt, clearSoul, restoreOriginal } from './patcher.mjs';
 import { resolveClaudeContext, updatePatchedSalt } from './context.mjs';
 import { renderCard, renderMiniCard } from './display.mjs';
@@ -651,6 +651,56 @@ async function cmdRestore() {
 
 async function cmdDex() {
   if (flags.json) {
+    if (flags.pick != null) {
+      const idx = flags.pick - 1;
+      if (idx < 0 || idx >= SPECIES.length) {
+        errorJson('INVALID_PICK', `Pick must be 1-${SPECIES.length}`);
+      }
+      const targetSpecies = SPECIES[idx];
+      const context = requireClaudeContext({ needsInstall: true, needsSalt: true });
+      if (!context) return;
+
+      // Roll until species matches (max 10000 attempts)
+      let found = null;
+      for (let attempt = 0; attempt < 10000; attempt++) {
+        const salt = randomSalt();
+        const result = roll(context.userId, salt);
+        if (result.bones.species === targetSpecies) {
+          found = { salt, ...result };
+          break;
+        }
+      }
+
+      if (!found) {
+        errorJson('NOT_FOUND', `Could not find ${targetSpecies} in 10000 rolls`);
+      }
+
+      if (flags.dryRun) {
+        output({
+          command: 'dex-pick',
+          dryRun: true,
+          target: targetSpecies,
+          found: { salt: found.salt, species: found.bones.species, rarity: found.bones.rarity, stars: RARITY_STARS[found.bones.rarity] },
+        });
+        return;
+      }
+
+      // Apply
+      const patchResult = patchSalt(context.install, context.currentSalt, found.salt);
+      if (!patchResult.success) errorJson('PATCH_FAILED', patchResult.error);
+      updatePatchedSalt(found.salt);
+      clearSoul();
+
+      output({
+        command: 'dex-pick',
+        success: true,
+        target: targetSpecies,
+        result: { salt: found.salt, species: found.bones.species, rarity: found.bones.rarity, stars: RARITY_STARS[found.bones.rarity], eye: found.bones.eye, hat: found.bones.hat, stats: found.bones.stats },
+        patch: { type: patchResult.type, needsSwap: patchResult.needsSwap || false },
+      });
+      return;
+    }
+
     const state = loadState();
     const limit = await getDailyLimit();
     const starred = await isStarred();
@@ -682,6 +732,70 @@ async function cmdDex() {
   const eventRemaining = getApologyEventRemaining(loadState());
   console.log(`  ${DIM}Daily gacha limit: ${limit}${starred ? ' (⭐ star bonus!)' : ' (+1 with GitHub star)'}${RESET}`);
   console.log(`  ${DIM}Apology event: +${APOLOGY_EVENT.bonusRuns} extra ${APOLOGY_EVENT.pullsPerRun}-pulls (${eventRemaining} left)${RESET}\n`);
+
+  // Interactive pick
+  const pickAnswer = await ask(`\n  Pick a species? (1-${SPECIES.length}) or 'q': `);
+  if (!pickAnswer || pickAnswer === 'q') return;
+
+  const speciesIdx = parseInt(pickAnswer) - 1;
+  if (speciesIdx < 0 || speciesIdx >= SPECIES.length || isNaN(speciesIdx)) {
+    console.log(`${RED}  Invalid${RESET}`);
+    return;
+  }
+
+  const targetSpecies = SPECIES[speciesIdx];
+  console.log(`\n${BOLD}  Target: ${targetSpecies.toUpperCase()}${RESET}`);
+
+  const confirmRoll = await ask(`  Roll until you get ${targetSpecies}? [y/N]: `);
+  if (confirmRoll.toLowerCase() !== 'y') return;
+
+  const context = requireClaudeContext({ needsInstall: true, needsSalt: true });
+  if (!context) return;
+
+  console.log(`${DIM}  Searching...${RESET}`);
+
+  let found = null;
+  let attempts = 0;
+  for (let i = 0; i < 10000; i++) {
+    const salt = randomSalt();
+    const result = roll(context.userId, salt);
+    attempts++;
+    if (result.bones.species === targetSpecies) {
+      found = { salt, ...result };
+      break;
+    }
+  }
+
+  if (!found) {
+    console.log(`${RED}  Could not find ${targetSpecies} in ${attempts} attempts${RESET}\n`);
+    return;
+  }
+
+  console.log(`${GREEN}  Found in ${attempts} attempts!${RESET}\n`);
+  await playHatchAnimation(found.bones);
+  console.log(renderCard(found, { showSalt: true }));
+
+  const confirmApply = await ask(`  ${YELLOW}Apply this ${targetSpecies}? [y/N]: ${RESET}`);
+  if (confirmApply.toLowerCase() !== 'y') {
+    console.log(`${DIM}  Cancelled.${RESET}\n`);
+    return;
+  }
+
+  const patchResult = patchSalt(context.install, context.currentSalt, found.salt);
+  if (!patchResult.success) {
+    console.log(`\n${RED}  ✗ Patch failed: ${patchResult.error}${RESET}\n`);
+    return;
+  }
+
+  updatePatchedSalt(found.salt);
+  clearSoul();
+
+  if (patchResult.needsSwap) {
+    console.log(`\n${GREEN}  ✓ Patched! (needs swap on exit)${RESET}`);
+    console.log(`  ${CYAN}${patchResult.swapCommand}${RESET}\n`);
+  } else {
+    console.log(`\n${GREEN}  ✓ ${targetSpecies} applied! Restart Claude Code.${RESET}\n`);
+  }
 }
 
 function cmdSchema(subCmd) {
