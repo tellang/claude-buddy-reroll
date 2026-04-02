@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Setup: install Bun (for accurate hashing) + Stop hook for auto-swap
-import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, symlinkSync, unlinkSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { execSync } from 'child_process';
 import { saveInstallContext, maskUserId } from '../src/context.mjs';
@@ -32,7 +32,29 @@ try {
     }
   }
 
-  // 2. Copy swap script
+  // 2. Create CLI symlinks (buddy, bdy) so plugin users get CLI too
+  const CLI_SRC = resolve(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')), '..', 'src', 'cli.mjs');
+  const BIN_DIR = resolve(HOME, '.local', 'bin');
+  for (const name of ['buddy', 'bdy']) {
+    const ext = process.platform === 'win32' ? '.cmd' : '';
+    const target = resolve(BIN_DIR, name + ext);
+    try {
+      if (existsSync(target)) unlinkSync(target);
+      if (process.platform === 'win32') {
+        // Windows: create .cmd shim since symlinks need admin
+        writeFileSync(target, `@echo off\r\nnode "${CLI_SRC}" %*\r\n`);
+      } else {
+        // Unix: symlink works
+        writeFileSync(target, `#!/bin/sh\nexec node "${CLI_SRC}" "$@"\n`);
+        execSync(`chmod +x "${target}"`, { stdio: 'pipe' });
+      }
+      console.log(`✓ ${name} CLI → ${target}`);
+    } catch (e) {
+      console.log(`⚠ ${name} CLI 생성 실패 (${e.message}) — npm i -g 로 설치하세요`);
+    }
+  }
+
+  // 3. Copy swap script
   copyFileSync(SWAP_SRC, SWAP_DST);
   console.log('✓ buddy-swap.mjs copied to ~/.claude/');
 
