@@ -10,10 +10,10 @@ const HOME = process.env.USERPROFILE || process.env.HOME || '';
 // ─── Install Detection ──────────────────────────────
 
 export function detectInstall() {
-  const native = findNativeBinary();
   const npm = findNpmCliJs();
-  if (native) return { type: 'native', path: native };
   if (npm) return { type: 'npm', path: npm };
+  const native = findNativeBinary();
+  if (native) return { type: 'native', path: native };
   return null;
 }
 
@@ -67,7 +67,14 @@ function findNativeBinary() {
   const locatorCommand = process.platform === 'win32' ? 'where.exe claude' : 'which claude';
   try {
     const out = execSync(locatorCommand, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
-    if (out && existsSync(out) && !out.includes('node_modules')) return out;
+    const lines = out.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      if (!existsSync(line)) continue;
+      if (line.includes('node_modules')) continue;
+      // Skip npm shims — they are wrapper scripts, not native binaries
+      if (/\.(cmd|ps1)$/i.test(line)) continue;
+      return line;
+    }
   } catch {}
   return null;
 }
